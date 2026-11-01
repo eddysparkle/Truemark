@@ -86,3 +86,6 @@ const TrueMarkVerification = (() => {
     };
 
 })();
+
+
+console.log("TrueMark Verification Engine Loaded");
