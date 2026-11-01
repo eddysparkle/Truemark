@@ -1,267 +1,129 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#087a50">
-
-    <title>TrueMark — Scan Before You Buy</title>
-
-    <meta name="description"
-        content="TrueMark helps consumers check product information and make informed purchasing decisions.">
-
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap"
-        rel="stylesheet">
-
-    <link rel="stylesheet" href="style.css">
-
-    <script src="https://unpkg.com/html5-qrcode" defer></script>
-    <script src="script.js" defer></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#087a50">
+  <title>TrueMark — Scan Before You Buy</title>
+  <meta name="description" content="TrueMark helps consumers check product information and make informed purchasing decisions.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/html5-qrcode" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+  <script src="script.js" defer></script>
 </head>
-
 <body>
-
-    <header class="topbar">
-        <a href="#" class="brand" aria-label="TrueMark home">
-            <span class="brand-icon">✓</span>
-            <span>True<span>Mark</span></span>
-        </a>
-
-        <div class="profile-icon">V</div>
-    </header>
-
-    <main class="container">
-
-        <section class="welcome-section" id="home">
-
-            <p class="eyebrow">YOUR PRODUCT SAFETY COMPANION</p>
-
-            <h1>Shop with confidence.</h1>
-
-            <p class="welcome-description">
-                Check product information and make more informed purchasing decisions.
-            </p>
-
-        </section>
-
-        <section class="scan-card">
-
-            <div class="scan-icon">▦</div>
-
-            <h2>Check before you buy</h2>
-
-            <p>
-                Scan a product barcode or search for product information.
-            </p>
-
-            <button class="primary-scan-button" id="scanButton">
-                Scan a product <span>→</span>
-            </button>
-
-        </section>
-
-        <section class="search-section">
-
-            <h2>Find a product</h2>
-
-            <form id="searchForm" class="search-box">
-
-                <span>⌕</span>
-
-                <input
-                    type="search"
-                    id="productSearch"
-                    placeholder="Search product name or barcode..."
-                    autocomplete="off"
-                >
-
-                <button type="submit">Search</button>
-
-            </form>
-
-        </section>
-
-        <section class="categories-section" id="categories">
-
-            <div class="section-heading">
-                <h2>Explore categories</h2>
-                <span>Browse products</span>
-            </div>
-
-            <div class="category-grid">
-
-                <button class="category-card" data-category="Food">
-                    <span>🥫</span>
-                    <strong>Food</strong>
-                </button>
-
-                <button class="category-card" data-category="Drinks">
-                    <span>🥤</span>
-                    <strong>Drinks</strong>
-                </button>
-
-                <button class="category-card" data-category="Beauty">
-                    <span>🧴</span>
-                    <strong>Beauty</strong>
-                </button>
-
-                <button class="category-card" data-category="Personal Care">
-                    <span>🪥</span>
-                    <strong>Personal care</strong>
-                </button>
-
-                <button class="category-card" data-category="Household">
-                    <span>🧹</span>
-                    <strong>Household</strong>
-                </button>
-
-                <button class="category-card" data-category="Electronics">
-                    <span>🔌</span>
-                    <strong>Electronics</strong>
-                </button>
-
-                <button class="category-card" data-category="Health">
-                    <span>💊</span>
-                    <strong>Health</strong>
-                </button>
-
-                <button class="category-card" data-category="Other">
-                    <span>📦</span>
-                    <strong>Other products</strong>
-                </button>
-
-            </div>
-
-        </section>
-
-        <section class="history-section" id="history">
-
-            <div class="section-heading">
-                <h2>Recent activity</h2>
-
-                <button id="viewHistory">View all</button>
-            </div>
-
-            <div id="historyList" class="history-list">
-
-                <div class="empty-state">
-                    <span class="empty-icon">▦</span>
-                    <h3>No scans yet</h3>
-                    <p>Products you scan will appear here.</p>
-                </div>
-
-            </div>
-
-        </section>
-
-        <section class="alert-card" id="alerts">
-
-            <div class="alert-icon">!</div>
-
-            <div>
-                <h3>Stay informed</h3>
-                <p>
-                    Get important product safety information and official alerts.
-                </p>
-            </div>
-
-            <span class="alert-arrow">→</span>
-
-        </section>
-
-    </main>
-
-    <!-- SCANNER MODAL -->
-
-    <div class="scanner-modal" id="scannerModal" aria-hidden="true">
-
-        <div class="scanner-box">
-
-            <div class="scanner-header">
-
-                <div>
-                    <span class="scanner-label">TRUEMARK SCANNER</span>
-                    <h2>Scan a product</h2>
-                </div>
-
-                <button id="closeScanner" class="close-button"
-                    aria-label="Close scanner">&times;</button>
-
-            </div>
-
-            <p class="scanner-description">
-                Position the product barcode inside the camera frame.
-            </p>
-
-            <div id="reader"></div>
-
-            <p id="scannerStatus" class="scanner-status">
-                Tap Start Camera to begin scanning.
-            </p>
-
-            <button id="startCamera" class="camera-button">
-                Start Camera
-            </button>
-
-            <div id="scanResult" class="scan-result" hidden>
-
-                <span class="result-check">✓</span>
-
-                <h3>Barcode detected</h3>
-
-                <p>Your scanned barcode number:</p>
-
-                <strong id="barcodeValue"></strong>
-
-                <p class="result-note">
-                    Product identification and verification will be available
-                    when our product database is connected.
-                </p>
-
-                <button id="scanAgain" class="scan-again-button">
-                    Scan another product
-                </button>
-
-            </div>
-
-            <p class="privacy-note">
-                Your camera is used to scan the barcode.
-            </p>
-
+  <header class="topbar">
+    <a href="#" class="brand" aria-label="TrueMark home">
+      <span class="brand-icon">✓</span>
+      <span>True<span>Mark</span></span>
+    </a>
+    <div class="profile-icon" aria-label="Profile">V</div>
+  </header>
+
+  <main class="container">
+    <section class="welcome-section" id="home">
+      <p class="eyebrow">YOUR PRODUCT SAFETY COMPANION</p>
+      <h1>Shop with confidence.</h1>
+      <p class="welcome-description">Check product information and make more informed purchasing decisions.</p>
+    </section>
+
+    <section class="scan-card">
+      <div class="scan-icon">▦</div>
+      <h2>Check before you buy</h2>
+      <p>Scan a product barcode, photograph its label, or search for product information.</p>
+      <button class="primary-scan-button" id="scanButton" type="button">
+        Scan a product <span>→</span>
+      </button>
+    </section>
+
+    <section class="search-section">
+      <h2>Find a product</h2>
+      <form id="searchForm" class="search-box">
+        <span>⌕</span>
+        <input type="search" id="productSearch" placeholder="Search product name or barcode..." autocomplete="off">
+        <button type="submit">Search</button>
+      </form>
+    </section>
+
+    <section class="categories-section" id="categories">
+      <div class="section-heading">
+        <h2>Explore categories</h2>
+        <span>Browse products</span>
+      </div>
+      <div class="category-grid">
+        <button class="category-card" data-category="Food" type="button"><span>🥫</span><strong>Food</strong></button>
+        <button class="category-card" data-category="Drinks" type="button"><span>🥤</span><strong>Drinks</strong></button>
+        <button class="category-card" data-category="Beauty" type="button"><span>🧴</span><strong>Beauty</strong></button>
+        <button class="category-card" data-category="Personal Care" type="button"><span>🪥</span><strong>Personal care</strong></button>
+        <button class="category-card" data-category="Household" type="button"><span>🧹</span><strong>Household</strong></button>
+        <button class="category-card" data-category="Electronics" type="button"><span>🔌</span><strong>Electronics</strong></button>
+        <button class="category-card" data-category="Health" type="button"><span>💊</span><strong>Health & medicines</strong></button>
+        <button class="category-card" data-category="Other" type="button"><span>📦</span><strong>Other products</strong></button>
+      </div>
+    </section>
+
+    <section class="history-section" id="history">
+      <div class="section-heading">
+        <h2>Recent activity</h2>
+        <button id="viewHistory" type="button">View all</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <div class="empty-state">
+          <span class="empty-icon">▦</span>
+          <h3>No scans yet</h3>
+          <p>Products you scan will appear here.</p>
         </div>
+      </div>
+    </section>
 
+    <section class="alert-card" id="alerts">
+      <div class="alert-icon">!</div>
+      <div>
+        <h3>Stay informed</h3>
+        <p>Get important product safety information and official alerts.</p>
+      </div>
+      <span class="alert-arrow">→</span>
+    </section>
+  </main>
+
+  <div class="scanner-modal" id="scannerModal" aria-hidden="true">
+    <div class="scanner-box" role="dialog" aria-modal="true" aria-labelledby="scannerTitle">
+      <div class="scanner-header">
+        <div>
+          <span class="scanner-label">TRUEMARK SCANNER</span>
+          <h2 id="scannerTitle">Check a product</h2>
+        </div>
+        <button id="closeScanner" class="close-button" type="button" aria-label="Close scanner">&times;</button>
+      </div>
+
+      <p class="scanner-description">Choose barcode scanning for products with a barcode, or label scanning for products without one.</p>
+
+      <div class="scan-options">
+        <button id="startCamera" class="camera-button" type="button">Scan barcode</button>
+        <button id="labelScanButton" class="label-button" type="button">Photograph product label</button>
+      </div>
+
+      <input type="file" id="labelImageInput" accept="image/*" capture="environment" hidden>
+
+      <div id="reader"></div>
+      <p id="scannerStatus" class="scanner-status" aria-live="polite">Choose a scanning method to begin.</p>
+
+      <div id="scanResult" class="scan-result" hidden></div>
+
+      <p class="privacy-note">Your camera is used only when you choose to scan or photograph a product.</p>
     </div>
+  </div>
 
-    <!-- BOTTOM NAVIGATION -->
+  <nav class="bottom-nav" aria-label="Main navigation">
+    <button class="nav-item active" data-target="home" type="button"><span>⌂</span><small>Home</small></button>
+    <button class="nav-item" id="navScan" type="button"><span>▦</span><small>Scan</small></button>
+    <button class="nav-item" data-target="history" type="button"><span>◷</span><small>History</small></button>
+    <button class="nav-item" data-target="alerts" type="button"><span>♧</span><small>Alerts</small></button>
+  </nav>
 
-    <nav class="bottom-nav">
-
-        <button class="nav-item active" data-target="home">
-            <span>⌂</span>
-            <small>Home</small>
-        </button>
-
-        <button class="nav-item" id="navScan">
-            <span>▦</span>
-            <small>Scan</small>
-        </button>
-
-        <button class="nav-item" data-target="history">
-            <span>◷</span>
-            <small>History</small>
-        </button>
-
-        <button class="nav-item" data-target="alerts">
-            <span>♧</span>
-            <small>Alerts</small>
-        </button>
-
-    </nav>
-
-    <div id="toast" class="toast" role="status"></div>
-
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
