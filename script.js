@@ -1,7 +1,8 @@
 /* ==========================================
    TRUEMARK — SMART PRODUCT SCANNER
-   Version 3.0
+   Version 3.1
    Barcode + Enhanced OCR + Product Search
+   Improved Diagnostics + Date Recognition
 ========================================== */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -58,6 +59,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     }
 
+    function setStatus(message) {
+
+        if (scannerStatus) {
+            scannerStatus.textContent = message;
+        }
+
+    }
+
     function showToast(message) {
 
         if (!toast) return;
@@ -77,12 +86,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
 
-            return JSON.parse(
+            const history = JSON.parse(
                 localStorage.getItem(HISTORY_KEY) || "[]"
             );
 
-        } catch {
+            return Array.isArray(history) ? history : [];
 
+        } catch (error) {
+
+            console.warn("History retrieval error:", error);
             return [];
 
         }
@@ -241,6 +253,8 @@ document.addEventListener("DOMContentLoaded", () => {
             `
             : "";
 
+        if (!scanResult) return;
+
         scanResult.hidden = false;
 
         scanResult.innerHTML = `
@@ -291,11 +305,13 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         document.getElementById("scanAgainButton")
-            .addEventListener("click", resetScanner);
+            ?.addEventListener("click", resetScanner);
 
     }
 
     function displayNotFound(barcode) {
+
+        if (!scanResult) return;
 
         scanResult.hidden = false;
 
@@ -336,7 +352,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         document.getElementById("scanAgainButton")
-            .addEventListener("click", resetScanner);
+            ?.addEventListener("click", resetScanner);
 
     }
 
@@ -346,29 +362,56 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function lookupBarcode(barcode) {
 
-        scannerStatus.textContent =
-            "Checking product information...";
+        setStatus("Checking product information...");
+
+        if (!barcode) {
+
+            setStatus("No barcode was detected.");
+            return;
+
+        }
 
         try {
 
-            const response = await fetch(
-                `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,brands,categories,quantity,image_url,manufacturing_places`
-            );
+            const url =
+                `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,brands,categories,quantity,image_url,manufacturing_places`;
+
+            const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                    "Accept": "application/json"
+                }
+            });
 
             if (!response.ok) {
 
-                throw new Error("Product database unavailable.");
+                throw new Error(
+                    `Database returned HTTP ${response.status} ${response.statusText}.`
+                );
 
             }
 
-            const data = await response.json();
+            let data;
+
+            try {
+
+                data = await response.json();
+
+            } catch {
+
+                throw new Error(
+                    "The product database returned an invalid response."
+                );
+
+            }
 
             if (data.status !== 1 || !data.product) {
 
                 displayNotFound(barcode);
 
-                scannerStatus.textContent =
-                    "Product information search completed.";
+                setStatus(
+                    "Product information search completed."
+                );
 
                 return;
 
@@ -381,7 +424,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 name: item.product_name || "",
                 brand: item.brands || "",
 
-                // Manufacturing places are not necessarily manufacturers.
+                // Manufacturing places are not manufacturers.
                 manufacturer: "",
 
                 barcode: item.code || barcode,
@@ -391,44 +434,54 @@ document.addEventListener("DOMContentLoaded", () => {
 
             });
 
-            scannerStatus.textContent =
-                "Product information retrieved.";
+            setStatus(
+                "Product information retrieved. Authenticity not confirmed."
+            );
 
         } catch (error) {
 
             console.error("Barcode lookup error:", error);
 
-            scanResult.hidden = false;
+            if (scanResult) {
 
-            scanResult.innerHTML = `
-                <div class="verification-result">
+                scanResult.hidden = false;
 
-                    <h3>Database connection unavailable</h3>
+                scanResult.innerHTML = `
+                    <div class="verification-result">
 
-                    <p>
-                        TrueMark could not retrieve product information.
-                    </p>
+                        <h3>Database connection unavailable</h3>
 
-                    <p class="verification-warning">
-                        No authenticity conclusion has been made.
-                    </p>
+                        <p>
+                            TrueMark could not retrieve product information.
+                        </p>
 
-                    <button
-                        type="button"
-                        class="scan-again-button"
-                        id="scanAgainButton"
-                    >
-                        Try again
-                    </button>
+                        <p class="verification-warning">
+                            No authenticity conclusion has been made.
+                        </p>
 
-                </div>
-            `;
+                        <p class="diagnostic-message">
+                            ${escapeHTML(error.message || "Unknown connection error.")}
+                        </p>
 
-            document.getElementById("scanAgainButton")
-                .addEventListener("click", resetScanner);
+                        <button
+                            type="button"
+                            class="scan-again-button"
+                            id="scanAgainButton"
+                        >
+                            Try again
+                        </button>
 
-            scannerStatus.textContent =
-                "Product lookup could not be completed.";
+                    </div>
+                `;
+
+                document.getElementById("scanAgainButton")
+                    ?.addEventListener("click", resetScanner);
+
+            }
+
+            setStatus(
+                "Product lookup failed. Check your internet connection and try again."
+            );
 
         }
 
@@ -464,10 +517,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function startBarcodeScanner() {
 
+        if (!reader) {
+
+            setStatus("Scanner display could not be found.");
+            return;
+
+        }
+
         if (typeof Html5Qrcode === "undefined") {
 
-            scannerStatus.textContent =
-                "Barcode scanner library could not load.";
+            setStatus(
+                "Barcode scanner library could not load. Refresh the page and try again."
+            );
 
             return;
 
@@ -480,8 +541,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         processingScan = false;
 
-        scannerStatus.textContent =
-            "Starting camera...";
+        setStatus("Starting camera...");
 
         try {
 
@@ -521,8 +581,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
                     processingScan = true;
 
-                    scannerStatus.textContent =
-                        "Barcode detected. Checking product...";
+                    setStatus(
+                        "Barcode detected. Checking product..."
+                    );
 
                     await stopCamera();
 
@@ -536,15 +597,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
             cameraRunning = true;
 
-            scannerStatus.textContent =
-                "Position the barcode inside the scanning area.";
+            setStatus(
+                "Position the barcode inside the scanning area."
+            );
 
         } catch (error) {
 
             console.error("Camera error:", error);
 
-            scannerStatus.textContent =
-                "Unable to access camera. Check browser permissions.";
+            cameraRunning = false;
+
+            setStatus(
+                "Unable to access camera. Check browser permissions and ensure the site uses HTTPS."
+            );
 
         }
 
@@ -596,6 +661,14 @@ document.addEventListener("DOMContentLoaded", () => {
             const context = canvas.getContext("2d", {
                 willReadFrequently: true
             });
+
+            if (!context) {
+
+                throw new Error(
+                    "Image processing is unavailable in this browser."
+                );
+
+            }
 
             context.drawImage(
                 image,
@@ -666,10 +739,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         for (const mode of modes) {
 
-            scannerStatus.textContent =
+            setStatus(
                 mode === "enhanced"
                     ? "Enhancing product photograph..."
-                    : "Running additional text recognition...";
+                    : "Running additional text recognition..."
+            );
 
             const canvas = await prepareOCRImage(file, mode);
 
@@ -686,8 +760,9 @@ document.addEventListener("DOMContentLoaded", () => {
                                 message.progress * 100
                             );
 
-                            scannerStatus.textContent =
-                                `Analysing product label: ${progress}%`;
+                            setStatus(
+                                `Analysing product label: ${progress}%`
+                            );
 
                         }
 
@@ -727,8 +802,98 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 13. DATE RECOGNITION
+    // 13. IMPROVED DATE RECOGNITION
     // ========================================
+
+    function isValidDateMatch(value) {
+
+        const cleaned = String(value || "")
+            .trim()
+            .replace(/,/g, "");
+
+        // Reject phone-number-like values.
+        if (/^\d{1,2}-\d{3,}-\d+$/.test(cleaned)) {
+            return false;
+        }
+
+        // Numeric dates: DD/MM/YYYY, MM/YYYY, YYYY-MM-DD.
+        let match = cleaned.match(
+            /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/
+        );
+
+        if (match) {
+
+            const first = Number(match[1]);
+            const second = Number(match[2]);
+            const year = Number(match[3]);
+
+            return (
+                first >= 1 && first <= 31 &&
+                second >= 1 && second <= 12 &&
+                year >= 2000 && year <= 2099
+            );
+
+        }
+
+        match = cleaned.match(
+            /^(\d{4})[\/.-](\d{1,2})(?:[\/.-](\d{1,2}))?$/
+        );
+
+        if (match) {
+
+            const year = Number(match[1]);
+            const month = Number(match[2]);
+            const day = match[3] ? Number(match[3]) : 1;
+
+            return (
+                year >= 2000 && year <= 2099 &&
+                month >= 1 && month <= 12 &&
+                day >= 1 && day <= 31
+            );
+
+        }
+
+        // Month/year formats such as 11/2027.
+        match = cleaned.match(
+            /^(\d{1,2})[\/.-](\d{4})$/
+        );
+
+        if (match) {
+
+            const month = Number(match[1]);
+            const year = Number(match[2]);
+
+            return (
+                month >= 1 &&
+                month <= 12 &&
+                year >= 2000 &&
+                year <= 2099
+            );
+
+        }
+
+        // Month name formats such as NOV 2027.
+        const monthNames =
+            "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC";
+
+        const monthYearPattern = new RegExp(
+            `^(?:${monthNames})[A-Z]*\\s+\\d{4}$`,
+            "i"
+        );
+
+        if (monthYearPattern.test(cleaned)) {
+            return true;
+        }
+
+        // Formats such as NOV 11 2027 or 11 NOV 2027.
+        const monthDayYearPattern = new RegExp(
+            `^(?:(?:${monthNames})[A-Z]*\\s+\\d{1,2}\\s+\\d{4}|\\d{1,2}\\s+(?:${monthNames})[A-Z]*\\s+\\d{4})$`,
+            "i"
+        );
+
+        return monthDayYearPattern.test(cleaned);
+
+    }
 
     function findDates(text) {
 
@@ -737,7 +902,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const results = [];
 
         const datePattern =
-            /\b(?:\d{1,2}[\/.-]\d{2,4}|\d{4}[\/.-]\d{1,2}|\d{1,2}\s+[A-Z]{3,9}\s+\d{2,4}|[A-Z]{3,9}\s+\d{1,2},?\s+\d{2,4})\b/gi;
+            /\b(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{1,2}[\/.-]\d{4}|\d{4}[\/.-]\d{1,2}(?:[\/.-]\d{1,2})?|\d{1,2}\s+[A-Z]{3,9}\s+\d{4}|[A-Z]{3,9}\s+\d{1,2},?\s+\d{4}|[A-Z]{3,9}\s+\d{4})\b/gi;
 
         const keywords = {
 
@@ -755,7 +920,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             matches.forEach(match => {
 
-                const value = match[0];
+                const value = match[0].trim();
+
+                if (!isValidDateMatch(value)) {
+                    return;
+                }
 
                 const previousLine = lines[index - 1] || "";
                 const nextLine = lines[index + 1] || "";
@@ -799,7 +968,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         });
 
-        return results;
+        // Remove duplicate detections.
+        return results.filter((date, index, array) => {
+
+            return array.findIndex(item =>
+                item.type === date.type &&
+                item.value === date.value
+            ) === index;
+
+        });
 
     }
 
@@ -1003,6 +1180,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const possibleDates =
             information.possibleOtherDates || [];
 
+        if (!scanResult) return;
+
+        scanResult.hidden = false;
+
         scanResult.innerHTML = `
 
             <div class="ocr-result smart-ocr-result">
@@ -1098,7 +1279,7 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
 
         document.getElementById("scanAgainButton")
-            .addEventListener("click", resetScanner);
+            ?.addEventListener("click", resetScanner);
 
     }
 
@@ -1112,8 +1293,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (typeof Tesseract === "undefined") {
 
-            scannerStatus.textContent =
-                "Text recognition library could not load.";
+            setStatus(
+                "Text recognition library could not load."
+            );
 
             return;
 
@@ -1121,7 +1303,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!file.type.startsWith("image/")) {
 
-            showToast("Please select a valid product photograph.");
+            showToast(
+                "Please select a valid product photograph."
+            );
 
             return;
 
@@ -1129,24 +1313,33 @@ document.addEventListener("DOMContentLoaded", () => {
 
         await stopCamera();
 
-        scanResult.hidden = false;
+        if (scanResult) {
 
-        scanResult.innerHTML = `
+            scanResult.hidden = false;
 
-            <div class="ocr-result">
+            scanResult.innerHTML = `
 
-                <h3>TrueMark is analysing your product</h3>
+                <div class="ocr-result">
 
-                <p>
-                    Enhancing the image and recognising packaging information.
-                </p>
+                    <h3>TrueMark is analysing your product</h3>
 
-            </div>
+                    <p>
+                        Enhancing the image and recognising packaging information.
+                    </p>
 
-        `;
+                </div>
 
-        labelScanButton.disabled = true;
-        startCamera.disabled = true;
+            `;
+
+        }
+
+        if (labelScanButton) {
+            labelScanButton.disabled = true;
+        }
+
+        if (startCamera) {
+            startCamera.disabled = true;
+        }
 
         try {
 
@@ -1165,6 +1358,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const information =
                 extractLabelInformation(extractedText);
 
+            // OCR alone cannot identify a trusted product record.
             const verification = verifyProductInformation({
 
                 name: "",
@@ -1196,50 +1390,65 @@ document.addEventListener("DOMContentLoaded", () => {
 
             });
 
-            scannerStatus.textContent =
-                "Label analysis completed. Authenticity not confirmed.";
+            setStatus(
+                "Label analysis completed. Authenticity not confirmed."
+            );
 
         } catch (error) {
 
             console.error("Smart OCR error:", error);
 
-            scanResult.innerHTML = `
+            if (scanResult) {
 
-                <div class="ocr-result">
+                scanResult.hidden = false;
 
-                    <h3>Label recognition unsuccessful</h3>
+                scanResult.innerHTML = `
 
-                    <p>${escapeHTML(error.message)}</p>
+                    <div class="ocr-result">
 
-                    <p>
-                        Try taking a clearer photograph with the product
-                        label facing the camera.
-                    </p>
+                        <h3>Label recognition unsuccessful</h3>
 
-                    <button
-                        type="button"
-                        class="scan-again-button"
-                        id="scanAgainButton"
-                    >
-                        Try another photograph
-                    </button>
+                        <p>${escapeHTML(error.message)}</p>
 
-                </div>
+                        <p>
+                            Try taking a clearer photograph with the product
+                            label facing the camera.
+                        </p>
 
-            `;
+                        <button
+                            type="button"
+                            class="scan-again-button"
+                            id="scanAgainButton"
+                        >
+                            Try another photograph
+                        </button>
 
-            scannerStatus.textContent =
-                "Could not recognise the product label.";
+                    </div>
+
+                `;
+
+            }
+
+            setStatus(
+                "Could not recognise the product label."
+            );
 
             document.getElementById("scanAgainButton")
-                .addEventListener("click", resetScanner);
+                ?.addEventListener("click", resetScanner);
 
         } finally {
 
-            labelScanButton.disabled = false;
-            startCamera.disabled = false;
+            if (labelScanButton) {
+                labelScanButton.disabled = false;
+            }
 
-            labelImageInput.value = "";
+            if (startCamera) {
+                startCamera.disabled = false;
+            }
+
+            if (labelImageInput) {
+                labelImageInput.value = "";
+            }
 
         }
 
@@ -1251,15 +1460,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function searchProducts(query) {
 
-        if (!query.trim()) {
+        if (!query || !query.trim()) {
 
-            showToast("Enter a product name or barcode.");
+            showToast(
+                "Enter a product name or barcode."
+            );
 
             return;
 
         }
 
-        showToast("Searching product database...");
+        showToast(
+            "Searching product database..."
+        );
 
         try {
 
@@ -1269,7 +1482,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 new URLSearchParams({
 
-                    search_terms: query,
+                    search_terms: query.trim(),
                     search_simple: "1",
                     action: "process",
                     json: "1",
@@ -1278,17 +1491,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 });
 
-            const response = await fetch(url);
+            const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                    "Accept": "application/json"
+                }
+            });
 
             if (!response.ok) {
 
-                throw new Error("Search service unavailable.");
+                throw new Error(
+                    `Search service returned HTTP ${response.status}.`
+                );
 
             }
 
             const data = await response.json();
 
-            const products = data.products || [];
+            const products = Array.isArray(data.products)
+                ? data.products
+                : [];
+
+            if (!scanResult) return;
 
             scanResult.hidden = false;
 
@@ -1361,14 +1585,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
             openScanner();
 
-            scannerStatus.textContent =
-                "Product search completed.";
+            setStatus(
+                "Product search completed."
+            );
 
         } catch (error) {
 
             console.error("Search error:", error);
 
-            showToast("Product search is temporarily unavailable.");
+            showToast(
+                error.message || "Product search is temporarily unavailable."
+            );
 
         }
 
@@ -1433,7 +1660,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             </p>
 
                             <small>
-                                ${date.toLocaleString()}
+                                ${escapeHTML(date.toLocaleString())}
                             </small>
 
                         </div>
@@ -1456,18 +1683,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function openScanner() {
 
+        if (!scannerModal) return;
+
         scannerModal.classList.add("open");
 
-        scannerModal.setAttribute("aria-hidden", "false");
+        scannerModal.setAttribute(
+            "aria-hidden",
+            "false"
+        );
 
-        scanResult.hidden = true;
+        if (scanResult) {
+            scanResult.hidden = true;
+        }
 
-        reader.innerHTML = "";
+        if (reader) {
+            reader.innerHTML = "";
+        }
 
         processingScan = false;
 
-        scannerStatus.textContent =
-            "Choose a scanning method to begin.";
+        setStatus(
+            "Choose a scanning method to begin."
+        );
 
     }
 
@@ -1475,11 +1712,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         await stopCamera();
 
+        if (!scannerModal) return;
+
         scannerModal.classList.remove("open");
 
-        scannerModal.setAttribute("aria-hidden", "true");
+        scannerModal.setAttribute(
+            "aria-hidden",
+            "true"
+        );
 
-        reader.innerHTML = "";
+        if (reader) {
+            reader.innerHTML = "";
+        }
 
         processingScan = false;
 
@@ -1489,14 +1733,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
         stopCamera().then(() => {
 
-            reader.innerHTML = "";
+            if (reader) {
+                reader.innerHTML = "";
+            }
 
-            scanResult.hidden = true;
+            if (scanResult) {
+                scanResult.hidden = true;
+            }
 
             processingScan = false;
 
-            scannerStatus.textContent =
-                "Choose a scanning method to begin.";
+            setStatus(
+                "Choose a scanning method to begin."
+            );
 
         });
 
@@ -1508,13 +1757,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (scanButton) {
 
-        scanButton.addEventListener("click", openScanner);
+        scanButton.addEventListener(
+            "click",
+            openScanner
+        );
 
     }
 
     if (navScan) {
 
-        navScan.addEventListener("click", openScanner);
+        navScan.addEventListener(
+            "click",
+            openScanner
+        );
 
     }
 
@@ -1656,7 +1911,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     renderHistory();
 
-    console.log("TrueMark Smart Scanner v3.0 initialised.");
+    console.log(
+        "TrueMark Smart Scanner v3.1 initialised."
+    );
 
     console.log(
 
