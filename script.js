@@ -1,6 +1,7 @@
 /* ==========================================
-   TRUEMARK — PRODUCT SCANNER & VERIFICATION
-   Version 2.1
+   TRUEMARK — SMART PRODUCT SCANNER
+   Version 3.0
+   Barcode + Enhanced OCR + Product Search
 ========================================== */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -46,6 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ========================================
 
     function escapeHTML(value) {
+
         return String(value ?? "").replace(/[&<>"']/g, char => ({
             "&": "&amp;",
             "<": "&lt;",
@@ -53,9 +55,13 @@ document.addEventListener("DOMContentLoaded", () => {
             '"': "&quot;",
             "'": "&#039;"
         })[char]);
+
     }
 
     function showToast(message) {
+
+        if (!toast) return;
+
         toast.textContent = message;
         toast.classList.add("show");
 
@@ -64,19 +70,27 @@ document.addEventListener("DOMContentLoaded", () => {
         toastTimer = setTimeout(() => {
             toast.classList.remove("show");
         }, 3000);
+
     }
 
     function getHistory() {
+
         try {
+
             return JSON.parse(
                 localStorage.getItem(HISTORY_KEY) || "[]"
             );
+
         } catch {
+
             return [];
+
         }
+
     }
 
     function saveHistory(item) {
+
         const history = getHistory();
 
         history.unshift({
@@ -84,12 +98,21 @@ document.addEventListener("DOMContentLoaded", () => {
             date: new Date().toISOString()
         });
 
-        localStorage.setItem(
-            HISTORY_KEY,
-            JSON.stringify(history.slice(0, 30))
-        );
+        try {
+
+            localStorage.setItem(
+                HISTORY_KEY,
+                JSON.stringify(history.slice(0, 30))
+            );
+
+        } catch (error) {
+
+            console.warn("History storage error:", error);
+
+        }
 
         renderHistory();
+
     }
 
     // ========================================
@@ -102,17 +125,22 @@ document.addEventListener("DOMContentLoaded", () => {
             typeof TrueMarkVerification === "undefined" ||
             typeof TrueMarkVerification.verifyProduct !== "function"
         ) {
+
             return {
                 status: "engine_unavailable",
                 title: "Verification service unavailable",
                 message: "TrueMark could not load its verification engine.",
                 verified: false
             };
+
         }
 
         try {
+
             return TrueMarkVerification.verifyProduct(product);
+
         } catch (error) {
+
             console.error("Verification error:", error);
 
             return {
@@ -121,7 +149,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 message: "An error occurred while checking product information.",
                 verified: false
             };
+
         }
+
     }
 
     // ========================================
@@ -133,28 +163,36 @@ document.addEventListener("DOMContentLoaded", () => {
         let warning = "";
 
         if (result.warning) {
+
             warning = `
                 <p class="verification-warning">
                     ${escapeHTML(result.warning)}
                 </p>
             `;
+
         }
 
         let checks = "";
 
         if (result.checks) {
+
             checks = `
                 <div class="verification-checks">
+
                     <h4>Information comparison</h4>
 
                     ${Object.entries(result.checks).map(([key, value]) => `
+
                         <p>
                             ${escapeHTML(key)}:
                             ${value ? "Match" : "Mismatch"}
                         </p>
+
                     `).join("")}
+
                 </div>
             `;
+
         }
 
         return `
@@ -169,6 +207,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             </div>
         `;
+
     }
 
     // ========================================
@@ -242,15 +281,18 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
 
         saveHistory({
+
             name: product.name || "Unknown product",
             brand: product.brand || "",
             barcode: product.barcode || "",
             source,
             status: verification.status
+
         });
 
         document.getElementById("scanAgainButton")
             .addEventListener("click", resetScanner);
+
     }
 
     function displayNotFound(barcode) {
@@ -285,14 +327,17 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
 
         saveHistory({
+
             name: "Unknown product",
             barcode,
             source: "barcode",
             status: "not_found"
+
         });
 
         document.getElementById("scanAgainButton")
             .addEventListener("click", resetScanner);
+
     }
 
     // ========================================
@@ -311,7 +356,9 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             if (!response.ok) {
+
                 throw new Error("Product database unavailable.");
+
             }
 
             const data = await response.json();
@@ -324,18 +371,24 @@ document.addEventListener("DOMContentLoaded", () => {
                     "Product information search completed.";
 
                 return;
+
             }
 
             const item = data.product;
 
             displayProduct({
+
                 name: item.product_name || "",
                 brand: item.brands || "",
-                manufacturer: item.manufacturing_places || "",
+
+                // Manufacturing places are not necessarily manufacturers.
+                manufacturer: "",
+
                 barcode: item.code || barcode,
                 image: item.image_url || "",
                 categories: item.categories || "",
                 quantity: item.quantity || ""
+
             });
 
             scannerStatus.textContent =
@@ -376,7 +429,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             scannerStatus.textContent =
                 "Product lookup could not be completed.";
+
         }
+
     }
 
     // ========================================
@@ -390,12 +445,17 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         try {
+
             await html5QrCode.stop();
+
         } catch (error) {
+
             console.warn("Camera stop:", error);
+
         }
 
         cameraRunning = false;
+
     }
 
     // ========================================
@@ -410,6 +470,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 "Barcode scanner library could not load.";
 
             return;
+
         }
 
         await stopCamera();
@@ -427,6 +488,7 @@ document.addEventListener("DOMContentLoaded", () => {
             html5QrCode = new Html5Qrcode("reader");
 
             const formats = [
+
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.EAN_8,
                 Html5QrcodeSupportedFormats.UPC_A,
@@ -435,16 +497,21 @@ document.addEventListener("DOMContentLoaded", () => {
                 Html5QrcodeSupportedFormats.CODE_39,
                 Html5QrcodeSupportedFormats.ITF,
                 Html5QrcodeSupportedFormats.QR_CODE
+
             ];
 
             await html5QrCode.start(
+
                 { facingMode: "environment" },
+
                 {
                     fps: 10,
+
                     qrbox: {
                         width: 250,
                         height: 150
                     },
+
                     formatsToSupport: formats
                 },
 
@@ -460,9 +527,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     await stopCamera();
 
                     await lookupBarcode(decodedText);
+
                 },
 
                 () => {}
+
             );
 
             cameraRunning = true;
@@ -476,57 +545,565 @@ document.addEventListener("DOMContentLoaded", () => {
 
             scannerStatus.textContent =
                 "Unable to access camera. Check browser permissions.";
+
         }
+
     }
 
     // ========================================
-    // 10. LABEL INFORMATION EXTRACTION
+    // 10. SMART OCR — TEXT NORMALISATION
+    // ========================================
+
+    function normalizeOCRText(text) {
+
+        return String(text || "")
+
+            .replace(/\r/g, "\n")
+
+            .replace(/[ \t]+/g, " ")
+
+            .replace(/\n{3,}/g, "\n\n")
+
+            .trim();
+
+    }
+
+    // ========================================
+    // 11. IMAGE ENHANCEMENT
+    // ========================================
+
+    async function prepareOCRImage(file, mode = "enhanced") {
+
+        const image = await createImageBitmap(file);
+
+        try {
+
+            const longestSide = Math.max(
+                image.width,
+                image.height
+            );
+
+            const scale = Math.max(
+                1,
+                Math.min(3, 2400 / longestSide)
+            );
+
+            const canvas = document.createElement("canvas");
+
+            canvas.width = Math.round(image.width * scale);
+            canvas.height = Math.round(image.height * scale);
+
+            const context = canvas.getContext("2d", {
+                willReadFrequently: true
+            });
+
+            context.drawImage(
+                image,
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            );
+
+            const imageData = context.getImageData(
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            );
+
+            const pixels = imageData.data;
+
+            for (let i = 0; i < pixels.length; i += 4) {
+
+                let gray =
+                    0.299 * pixels[i] +
+                    0.587 * pixels[i + 1] +
+                    0.114 * pixels[i + 2];
+
+                if (mode === "high-contrast") {
+
+                    gray = (gray - 128) * 1.7 + 128;
+
+                } else {
+
+                    gray = (gray - 128) * 1.35 + 128;
+
+                }
+
+                gray = Math.max(0, Math.min(255, gray));
+
+                pixels[i] = gray;
+                pixels[i + 1] = gray;
+                pixels[i + 2] = gray;
+
+            }
+
+            context.putImageData(imageData, 0, 0);
+
+            return canvas;
+
+        } finally {
+
+            image.close();
+
+        }
+
+    }
+
+    // ========================================
+    // 12. MULTIPLE OCR PASSES
+    // ========================================
+
+    async function runSmartOCR(file) {
+
+        const results = [];
+
+        const modes = [
+            "enhanced",
+            "high-contrast"
+        ];
+
+        for (const mode of modes) {
+
+            scannerStatus.textContent =
+                mode === "enhanced"
+                    ? "Enhancing product photograph..."
+                    : "Running additional text recognition...";
+
+            const canvas = await prepareOCRImage(file, mode);
+
+            const result = await Tesseract.recognize(
+                canvas,
+                "eng",
+                {
+
+                    logger: message => {
+
+                        if (message.status === "recognizing text") {
+
+                            const progress = Math.round(
+                                message.progress * 100
+                            );
+
+                            scannerStatus.textContent =
+                                `Analysing product label: ${progress}%`;
+
+                        }
+
+                    }
+
+                }
+            );
+
+            results.push({
+
+                text: normalizeOCRText(result.data.text),
+
+                confidence: Number(
+                    result.data.confidence || 0
+                ),
+
+                mode
+
+            });
+
+        }
+
+        results.sort((a, b) => {
+
+            const scoreA =
+                a.confidence + (a.text.length > 20 ? 5 : 0);
+
+            const scoreB =
+                b.confidence + (b.text.length > 20 ? 5 : 0);
+
+            return scoreB - scoreA;
+
+        });
+
+        return results[0];
+
+    }
+
+    // ========================================
+    // 13. DATE RECOGNITION
+    // ========================================
+
+    function findDates(text) {
+
+        const lines = text.split("\n");
+
+        const results = [];
+
+        const datePattern =
+            /\b(?:\d{1,2}[\/.-]\d{2,4}|\d{4}[\/.-]\d{1,2}|\d{1,2}\s+[A-Z]{3,9}\s+\d{2,4}|[A-Z]{3,9}\s+\d{1,2},?\s+\d{2,4})\b/gi;
+
+        const keywords = {
+
+            expiry:
+                /\b(EXP|EXPIRY|EXPIRES|USE BY|BEST BEFORE|BBE)\b/i,
+
+            manufacturing:
+                /\b(MFG|MFD|MANUFACTURED|PRODUCTION DATE)\b/i
+
+        };
+
+        lines.forEach((line, index) => {
+
+            const matches = [...line.matchAll(datePattern)];
+
+            matches.forEach(match => {
+
+                const value = match[0];
+
+                const previousLine = lines[index - 1] || "";
+                const nextLine = lines[index + 1] || "";
+
+                const context =
+                    `${previousLine} ${line} ${nextLine}`;
+
+                if (keywords.expiry.test(context)) {
+
+                    results.push({
+
+                        type: "expiry",
+                        value,
+                        confidence: "contextual"
+
+                    });
+
+                } else if (keywords.manufacturing.test(context)) {
+
+                    results.push({
+
+                        type: "manufacturing",
+                        value,
+                        confidence: "contextual"
+
+                    });
+
+                } else {
+
+                    results.push({
+
+                        type: "possible_date",
+                        value,
+                        confidence: "unconfirmed"
+
+                    });
+
+                }
+
+            });
+
+        });
+
+        return results;
+
+    }
+
+    // ========================================
+    // 14. BATCH / LOT RECOGNITION
+    // ========================================
+
+    function findBatchNumber(text) {
+
+        const lines = text.split("\n");
+
+        const patterns = [
+
+            /\b(?:BATCH|LOT)\s*(?:NO|NUMBER|#)?\s*[:.#-]?\s*([A-Z0-9][A-Z0-9/-]{2,})/i,
+
+            /\b(?:BATCH|LOT)\s*[:#]\s*([A-Z0-9/-]{3,})/i
+
+        ];
+
+        for (const line of lines) {
+
+            for (const pattern of patterns) {
+
+                const match = line.match(pattern);
+
+                if (match) {
+
+                    return {
+
+                        value: match[1],
+                        confidence: "contextual"
+
+                    };
+
+                }
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    // ========================================
+    // 15. NAFDAC RECOGNITION
+    // ========================================
+
+    function findNafdacNumber(text) {
+
+        const match = text.match(
+
+            /\bNAFDAC\b[\s\S]{0,25}?([A-Z0-9/-]{4,})/i
+
+        );
+
+        return match ? match[1] : null;
+
+    }
+
+    // ========================================
+    // 16. PRODUCT NAME RECOGNITION
+    // ========================================
+
+    function findPossibleProductName(text) {
+
+        const lines = text
+
+            .split("\n")
+
+            .map(line => line.trim())
+
+            .filter(line => line.length >= 4);
+
+        const ignoredWords =
+
+            /\b(directions|ingredients|warning|caution|distributed|manufactured|storage|keep|apply|dosage|questions|comments|inactive|active|contents|www\.|phone|address|instructions|before use)\b/i;
+
+        const candidates = lines.filter(line => {
+
+            if (ignoredWords.test(line)) return false;
+
+            if (/^[^a-zA-Z]*$/.test(line)) return false;
+
+            if (line.length > 100) return false;
+
+            return true;
+
+        });
+
+        return candidates.slice(0, 2).join(" ") || "";
+
+    }
+
+    // ========================================
+    // 17. MANUFACTURER RECOGNITION
+    // ========================================
+
+    function findManufacturer(text) {
+
+        const match = text.match(
+
+            /\b(?:manufactured by|distributed by|made by)\s*[:\-]?\s*([^\n]{3,100})/i
+
+        );
+
+        return match ? match[1].trim() : null;
+
+    }
+
+    // ========================================
+    // 18. COMBINE EXTRACTED INFORMATION
     // ========================================
 
     function extractLabelInformation(text) {
 
-        const lines = text
-            .split(/\r?\n/)
-            .map(line => line.trim())
-            .filter(line => line.length > 1);
+        const normalized = normalizeOCRText(text);
 
-        const batchMatch = text.match(
-            /\b(?:LOT|BATCH|BATCH NO|LOT NO)\s*[:#.-]?\s*([A-Z0-9-]{3,})/i
+        const dates = findDates(normalized);
+
+        const expiry = dates.find(
+            date => date.type === "expiry"
         );
 
-        const expiryMatch = text.match(
-            /\b(?:EXP|EXPIRY|EXPIRES|USE BY)\s*[:#.-]?\s*([A-Z0-9/-]{4,})/i
+        const manufacturing = dates.find(
+            date => date.type === "manufacturing"
         );
 
-        const manufacturedMatch = text.match(
-            /\b(?:MFG|MFD|MANUFACTURED)\s*[:#.-]?\s*([A-Z0-9/-]{4,})/i
+        const possibleDates = dates.filter(
+            date => date.type === "possible_date"
         );
 
-        const nafdacMatch = text.match(
-            /\b(?:NAFDAC)\s*(?:REG(?:ISTRATION)?\.?\s*(?:NO\.?)?)?\s*[:#.-]?\s*([A-Z0-9/-]{4,})/i
-        );
+        const batch = findBatchNumber(normalized);
 
         return {
-            extractedText: text,
 
-            possibleProductName: lines.slice(0, 3).join(" "),
+            extractedText: normalized,
 
-            batchNumber: batchMatch ? batchMatch[1] : null,
+            possibleProductName:
+                findPossibleProductName(normalized),
 
-            expiryDate: expiryMatch ? expiryMatch[1] : null,
+            manufacturer:
+                findManufacturer(normalized),
 
-            manufacturingDate: manufacturedMatch
-                ? manufacturedMatch[1]
-                : null,
+            batchNumber:
+                batch ? batch.value : null,
 
-            nafdacNumber: nafdacMatch
-                ? nafdacMatch[1]
-                : null
+            batchConfidence:
+                batch ? batch.confidence : "not detected",
+
+            expiryDate:
+                expiry ? expiry.value : null,
+
+            manufacturingDate:
+                manufacturing ? manufacturing.value : null,
+
+            possibleOtherDates:
+                possibleDates.map(date => date.value),
+
+            nafdacNumber:
+                findNafdacNumber(normalized)
+
         };
+
     }
 
     // ========================================
-    // 11. LABEL OCR
+    // 19. SMART LABEL RESULT DISPLAY
+    // ========================================
+
+    function displaySmartLabelResult(
+        information,
+        verification,
+        confidence
+    ) {
+
+        const displayField = (label, value, note = "") => {
+
+            return `
+
+                <div class="smart-field">
+
+                    <span class="smart-field-label">
+                        ${escapeHTML(label)}
+                    </span>
+
+                    <strong class="smart-field-value">
+                        ${escapeHTML(value || "Not identified")}
+                    </strong>
+
+                    ${note ? `
+                        <small>${escapeHTML(note)}</small>
+                    ` : ""}
+
+                </div>
+
+            `;
+
+        };
+
+        const possibleDates =
+            information.possibleOtherDates || [];
+
+        scanResult.innerHTML = `
+
+            <div class="ocr-result smart-ocr-result">
+
+                <h3>Product label analysis</h3>
+
+                <p class="ocr-confidence">
+                    OCR recognition confidence:
+                    ${Math.round(confidence)}%
+                </p>
+
+                <div class="smart-information-grid">
+
+                    ${displayField(
+                        "Possible product name",
+                        information.possibleProductName
+                    )}
+
+                    ${displayField(
+                        "Manufacturer / Distributor",
+                        information.manufacturer
+                    )}
+
+                    ${displayField(
+                        "Batch / Lot number",
+                        information.batchNumber,
+                        information.batchConfidence
+                    )}
+
+                    ${displayField(
+                        "Expiry date",
+                        information.expiryDate
+                    )}
+
+                    ${displayField(
+                        "Manufacturing date",
+                        information.manufacturingDate
+                    )}
+
+                    ${displayField(
+                        "NAFDAC number",
+                        information.nafdacNumber
+                    )}
+
+                </div>
+
+                ${possibleDates.length ? `
+
+                    <div class="possible-dates">
+
+                        <h4>Other dates detected</h4>
+
+                        <p>
+                            ${possibleDates
+                                .map(escapeHTML)
+                                .join(", ")}
+                        </p>
+
+                        <small>
+                            These dates have not been classified.
+                        </small>
+
+                    </div>
+
+                ` : ""}
+
+                ${getVerificationHTML(verification)}
+
+                <h4>Recognised packaging text</h4>
+
+                <pre class="ocr-text">${escapeHTML(
+                    information.extractedText
+                )}</pre>
+
+                <p class="verification-warning">
+
+                    OCR results may contain errors. Extracted information
+                    has not been confirmed against official records.
+                    Product identification is not proof of authenticity.
+
+                </p>
+
+                <button
+                    type="button"
+                    class="scan-again-button"
+                    id="scanAgainButton"
+                >
+                    Scan another label
+                </button>
+
+            </div>
+
+        `;
+
+        document.getElementById("scanAgainButton")
+            .addEventListener("click", resetScanner);
+
+    }
+
+    // ========================================
+    // 20. SMART LABEL SCANNING
     // ========================================
 
     async function scanLabel(file) {
@@ -539,6 +1116,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 "Text recognition library could not load.";
 
             return;
+
+        }
+
+        if (!file.type.startsWith("image/")) {
+
+            showToast("Please select a valid product photograph.");
+
+            return;
+
         }
 
         await stopCamera();
@@ -546,145 +1132,88 @@ document.addEventListener("DOMContentLoaded", () => {
         scanResult.hidden = false;
 
         scanResult.innerHTML = `
-            <div class="ocr-result">
-                <h3>Reading product label...</h3>
-                <p>Please wait while TrueMark examines the photograph.</p>
-            </div>
-        `;
 
-        scannerStatus.textContent =
-            "Extracting text from product packaging...";
+            <div class="ocr-result">
+
+                <h3>TrueMark is analysing your product</h3>
+
+                <p>
+                    Enhancing the image and recognising packaging information.
+                </p>
+
+            </div>
+
+        `;
 
         labelScanButton.disabled = true;
         startCamera.disabled = true;
 
         try {
 
-            const result = await Tesseract.recognize(
-                file,
-                "eng",
-                {
-                    logger: message => {
+            const bestResult = await runSmartOCR(file);
 
-                        if (message.status === "recognizing text") {
+            const extractedText = bestResult.text;
 
-                            const progress = Math.round(
-                                message.progress * 100
-                            );
+            if (!extractedText || extractedText.length < 3) {
 
-                            scannerStatus.textContent =
-                                `Reading label: ${progress}%`;
-                        }
-                    }
-                }
-            );
+                throw new Error(
+                    "TrueMark could not recognise enough text."
+                );
 
-            const extractedText = result.data.text.trim();
-
-            if (!extractedText) {
-                throw new Error("No readable text was detected.");
             }
 
             const information =
                 extractLabelInformation(extractedText);
 
             const verification = verifyProductInformation({
+
                 name: "",
                 brand: "",
                 manufacturer: ""
+
             });
 
-            scanResult.innerHTML = `
-                <div class="ocr-result">
+            displaySmartLabelResult(
 
-                    <h3>Label text extracted</h3>
+                information,
+                verification,
+                bestResult.confidence
 
-                    <div class="product-details">
-
-                        <h4>Extracted product information</h4>
-
-                        <p>
-                            <strong>Possible product name:</strong>
-                            ${escapeHTML(
-                                information.possibleProductName ||
-                                "Not identified"
-                            )}
-                        </p>
-
-                        <p>
-                            <strong>Batch / Lot number:</strong>
-                            ${escapeHTML(information.batchNumber || "Not identified")}
-                        </p>
-
-                        <p>
-                            <strong>Expiry date:</strong>
-                            ${escapeHTML(information.expiryDate || "Not identified")}
-                        </p>
-
-                        <p>
-                            <strong>Manufacturing date:</strong>
-                            ${escapeHTML(information.manufacturingDate || "Not identified")}
-                        </p>
-
-                        <p>
-                            <strong>NAFDAC number:</strong>
-                            ${escapeHTML(information.nafdacNumber || "Not identified")}
-                        </p>
-
-                    </div>
-
-                    ${getVerificationHTML(verification)}
-
-                    <h4>Original extracted text</h4>
-
-                    <pre class="ocr-text">${escapeHTML(extractedText)}</pre>
-
-                    <p class="verification-warning">
-                        OCR can misread packaging. Extracted information
-                        has not been checked against official records.
-                        No authenticity or safety confirmation has been made.
-                    </p>
-
-                    <button
-                        type="button"
-                        class="scan-again-button"
-                        id="scanAgainButton"
-                    >
-                        Scan another label
-                    </button>
-
-                </div>
-            `;
+            );
 
             saveHistory({
+
                 name: information.possibleProductName ||
                     "Label photograph",
+
                 source: "label",
+
                 status: verification.status,
+
                 batchNumber: information.batchNumber || "",
+
                 expiryDate: information.expiryDate || ""
+
             });
 
             scannerStatus.textContent =
-                "Label information extracted. No authenticity check performed.";
-
-            document.getElementById("scanAgainButton")
-                .addEventListener("click", resetScanner);
+                "Label analysis completed. Authenticity not confirmed.";
 
         } catch (error) {
 
-            console.error("OCR error:", error);
+            console.error("Smart OCR error:", error);
 
             scanResult.innerHTML = `
+
                 <div class="ocr-result">
 
-                    <h3>Unable to read label</h3>
+                    <h3>Label recognition unsuccessful</h3>
 
                     <p>${escapeHTML(error.message)}</p>
 
                     <p>
-                        Try taking another photograph with better lighting
-                        and keeping the label in focus.
+                        Try taking a clearer photograph with the product
+                        label facing the camera.
                     </p>
 
                     <button
@@ -696,10 +1225,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     </button>
 
                 </div>
+
             `;
 
             scannerStatus.textContent =
-                "Label recognition was unsuccessful.";
+                "Could not recognise the product label.";
 
             document.getElementById("scanAgainButton")
                 .addEventListener("click", resetScanner);
@@ -710,18 +1240,23 @@ document.addEventListener("DOMContentLoaded", () => {
             startCamera.disabled = false;
 
             labelImageInput.value = "";
+
         }
+
     }
 
     // ========================================
-    // 12. PRODUCT SEARCH
+    // 21. PRODUCT SEARCH
     // ========================================
 
     async function searchProducts(query) {
 
         if (!query.trim()) {
+
             showToast("Enter a product name or barcode.");
+
             return;
+
         }
 
         showToast("Searching product database...");
@@ -729,20 +1264,26 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
 
             const url =
+
                 "https://world.openfoodfacts.org/cgi/search.pl?" +
+
                 new URLSearchParams({
+
                     search_terms: query,
                     search_simple: "1",
                     action: "process",
                     json: "1",
                     page_size: "10",
                     fields: "product_name,brands,code,image_url"
+
                 });
 
             const response = await fetch(url);
 
             if (!response.ok) {
+
                 throw new Error("Search service unavailable.");
+
             }
 
             const data = await response.json();
@@ -754,6 +1295,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!products.length) {
 
                 scanResult.innerHTML = `
+
                     <div class="verification-result">
 
                         <h3>No product information found</h3>
@@ -768,16 +1310,19 @@ document.addEventListener("DOMContentLoaded", () => {
                         </p>
 
                     </div>
+
                 `;
 
             } else {
 
                 scanResult.innerHTML = `
+
                     <div class="product-details">
 
                         <h3>Search results</h3>
 
                         ${products.map(product => `
+
                             <div class="history-item">
 
                                 <strong>
@@ -798,15 +1343,20 @@ document.addEventListener("DOMContentLoaded", () => {
                                 </p>
 
                             </div>
+
                         `).join("")}
 
                         <p class="verification-warning">
+
                             These are product information results,
                             not authenticity confirmations.
+
                         </p>
 
                     </div>
+
                 `;
+
             }
 
             openScanner();
@@ -819,36 +1369,49 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Search error:", error);
 
             showToast("Product search is temporarily unavailable.");
+
         }
+
     }
 
     // ========================================
-    // 13. HISTORY
+    // 22. HISTORY
     // ========================================
 
     function renderHistory() {
+
+        if (!historyList) return;
 
         const history = getHistory();
 
         if (!history.length) {
 
             historyList.innerHTML = `
+
                 <div class="empty-state">
+
                     <span class="empty-icon">▦</span>
+
                     <h3>No scans yet</h3>
+
                     <p>Products you scan will appear here.</p>
+
                 </div>
+
             `;
 
             return;
+
         }
 
         historyList.innerHTML = history.slice(0, 5)
+
             .map(item => {
 
                 const date = new Date(item.date);
 
                 return `
+
                     <div class="history-item">
 
                         <div>
@@ -858,11 +1421,15 @@ document.addEventListener("DOMContentLoaded", () => {
                             </strong>
 
                             <p>
+
                                 ${escapeHTML(
+
                                     item.source === "label"
                                         ? "Label OCR · Label photo"
                                         : "Barcode scan"
+
                                 )}
+
                             </p>
 
                             <small>
@@ -876,13 +1443,15 @@ document.addEventListener("DOMContentLoaded", () => {
                         </span>
 
                     </div>
+
                 `;
 
             }).join("");
+
     }
 
     // ========================================
-    // 14. SCANNER MODAL
+    // 23. SCANNER MODAL
     // ========================================
 
     function openScanner() {
@@ -899,6 +1468,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         scannerStatus.textContent =
             "Choose a scanning method to begin.";
+
     }
 
     async function closeScannerModal() {
@@ -912,6 +1482,7 @@ document.addEventListener("DOMContentLoaded", () => {
         reader.innerHTML = "";
 
         processingScan = false;
+
     }
 
     function resetScanner() {
@@ -928,64 +1499,105 @@ document.addEventListener("DOMContentLoaded", () => {
                 "Choose a scanning method to begin.";
 
         });
+
     }
 
     // ========================================
-    // 15. EVENT LISTENERS
+    // 24. EVENT LISTENERS
     // ========================================
 
-    scanButton.addEventListener("click", openScanner);
+    if (scanButton) {
 
-    navScan.addEventListener("click", openScanner);
+        scanButton.addEventListener("click", openScanner);
 
-    closeScanner.addEventListener(
-        "click",
-        closeScannerModal
-    );
+    }
 
-    scannerModal.addEventListener("click", event => {
+    if (navScan) {
 
-        if (event.target === scannerModal) {
-            closeScannerModal();
-        }
+        navScan.addEventListener("click", openScanner);
 
-    });
+    }
 
-    startCamera.addEventListener(
-        "click",
-        startBarcodeScanner
-    );
+    if (closeScanner) {
 
-    labelScanButton.addEventListener("click", () => {
-        labelImageInput.click();
-    });
+        closeScanner.addEventListener(
+            "click",
+            closeScannerModal
+        );
 
-    labelImageInput.addEventListener("change", event => {
+    }
 
-        const file = event.target.files[0];
+    if (scannerModal) {
 
-        if (file) {
-            scanLabel(file);
-        }
+        scannerModal.addEventListener("click", event => {
 
-    });
+            if (event.target === scannerModal) {
 
-    searchForm.addEventListener("submit", event => {
+                closeScannerModal();
 
-        event.preventDefault();
+            }
 
-        searchProducts(productSearch.value);
+        });
 
-    });
+    }
 
-    viewHistory.addEventListener("click", () => {
+    if (startCamera) {
 
-        document.getElementById("history")
-            .scrollIntoView({
-                behavior: "smooth"
-            });
+        startCamera.addEventListener(
+            "click",
+            startBarcodeScanner
+        );
 
-    });
+    }
+
+    if (labelScanButton && labelImageInput) {
+
+        labelScanButton.addEventListener("click", () => {
+
+            labelImageInput.click();
+
+        });
+
+        labelImageInput.addEventListener("change", event => {
+
+            const file = event.target.files[0];
+
+            if (file) {
+
+                scanLabel(file);
+
+            }
+
+        });
+
+    }
+
+    if (searchForm && productSearch) {
+
+        searchForm.addEventListener("submit", event => {
+
+            event.preventDefault();
+
+            searchProducts(productSearch.value);
+
+        });
+
+    }
+
+    if (viewHistory) {
+
+        viewHistory.addEventListener("click", () => {
+
+            document.getElementById("history")
+                ?.scrollIntoView({
+
+                    behavior: "smooth"
+
+                });
+
+        });
+
+    }
 
     document.querySelectorAll(".category-card")
         .forEach(button => {
@@ -994,7 +1606,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 const category = button.dataset.category;
 
-                productSearch.value = category;
+                if (productSearch) {
+
+                    productSearch.value = category;
+
+                }
 
                 searchProducts(category);
 
@@ -1014,13 +1630,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (target) {
 
                     target.scrollIntoView({
+
                         behavior: "smooth"
+
                     });
 
                 }
 
                 document.querySelectorAll(".nav-item")
-                    .forEach(item => item.classList.remove("active"));
+                    .forEach(item => {
+
+                        item.classList.remove("active");
+
+                    });
 
                 button.classList.add("active");
 
@@ -1029,17 +1651,21 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
     // ========================================
-    // 16. INITIALISE
+    // 25. INITIALISE
     // ========================================
 
     renderHistory();
 
-    console.log("TrueMark scanner initialised.");
+    console.log("TrueMark Smart Scanner v3.0 initialised.");
 
     console.log(
+
         typeof TrueMarkVerification !== "undefined"
+
             ? "TrueMark verification engine connected."
+
             : "Warning: verification engine unavailable."
+
     );
 
 });
