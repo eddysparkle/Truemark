@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta name="theme-color" content="#087a50">
+
+    <meta name="description" content="TrueMark helps consumers check product information, identify suspicious products and access product safety information.">
+
+    <title>TrueMark | Scan Before You Buy</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <header class="topbar">
+        <a href="#" class="logo">
+            <span class="logo-icon">✓</span>
+            <span>True<span>Mark</span></span>
+        </a>
+
+        <button class="profile-button" aria-label="Profile">
+            V
+        </button>
+    </header>
+
+    <main>
+
+        <section class="welcome">
+            <p class="eyebrow">YOUR PRODUCT SAFETY COMPANION</p>
+
+            <h1>Shop with confidence.</h1>
+
+            <p class="welcome-text">
+                Check product information and make
+                more informed purchasing decisions.
+            </p>
+        </section>
+
+        <section class="scan-card">
+
+            <div class="scan-icon">▦</div>
+
+            <div class="scan-content">
+                <h2>Check before you buy</h2>
+
+                <p>
+                    Scan a product barcode or search
+                    for product information.
+                </p>
+            </div>
+
+            <button id="scanButton" class="scan-button">
+                Scan a product <span>→</span>
+            </button>
+
+        </section>
+
+        <section class="search-section">
+
+            <div class="search-box">
+                <span>⌕</span>
+
+                <input
+                    type="search"
+                    id="productSearch"
+                    placeholder="Search products or brands..."
+                >
+
+            </div>
+
+        </section>
+
+        <section class="categories-section">
+
+            <div class="section-heading">
+                <h2>Explore categories</h2>
+                <span>Browse products</span>
+            </div>
+
+            <div class="categories-grid">
+
+                <button class="category" data-category="Food">
+                    <span class="category-icon">🥫</span>
+                    <span>Food</span>
+                </button>
+
+                <button class="category" data-category="Drinks">
+                    <span class="category-icon">🥤</span>
+                    <span>Drinks</span>
+                </button>
+
+                <button class="category" data-category="Beauty">
+                    <span class="category-icon">🧴</span>
+                    <span>Beauty</span>
+                </button>
+
+                <button class="category" data-category="Personal Care">
+                    <span class="category-icon">🪥</span>
+                    <span>Personal care</span>
+                </button>
+
+                <button class="category" data-category="Household">
+                    <span class="category-icon">🧹</span>
+                    <span>Household</span>
+                </button>
+
+                <button class="category" data-category="Electronics">
+                    <span class="category-icon">🔌</span>
+                    <span>Electronics</span>
+                </button>
+
+                <button class="category" data-category="Health">
+                    <span class="category-icon">💊</span>
+                    <span>Health</span>
+                </button>
+
+                <button class="category" data-category="Other">
+                    <span class="category-icon">📦</span>
+                    <span>Other products</span>
+                </button>
+
+            </div>
+
+        </section>
+
+        <section class="recent-section">
+
+            <div class="section-heading">
+                <h2>Recent activity</h2>
+                <button id="viewHistory">View all</button>
+            </div>
+
+            <div id="recentScans" class="empty-state">
+
+                <div class="empty-icon">▦</div>
+
+                <h3>No scans yet</h3>
+
+                <p>
+                    Products you scan will appear here.
+                </p>
+
+            </div>
+
+        </section>
+
+        <section class="alert-card">
+
+            <div class="alert-symbol">!</div>
+
+            <div>
+                <h3>Stay informed</h3>
+
+                <p>
+                    Get important product safety
+                    information and official alerts.
+                </p>
+            </div>
+
+            <span class="alert-arrow">→</span>
+
+        </section>
+
+    </main>
+
+    <nav class="bottom-nav">
+
+        <button class="nav-item active" data-page="home">
+            <span>⌂</span>
+            <small>Home</small>
+        </button>
+
+        <button class="nav-item" data-page="scan">
+            <span>▦</span>
+            <small>Scan</small>
+        </button>
+
+        <button class="nav-item" data-page="history">
+            <span>◷</span>
+            <small>History</small>
+        </button>
+
+        <button class="nav-item" data-page="alerts">
+            <span>♧</span>
+            <small>Alerts</small>
+        </button>
+
+    </nav>
+
+    <div id="messageBox" class="message-box"></div>
+
+    <script src="script.js"></script>
+
+</body>
+</html>
