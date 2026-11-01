@@ -779,3 +779,90 @@ button:disabled {
     border-radius: 20px 20px 0 0;
   }
 }
+
+
+
+
+
+
+
+
+
+/* TRUEMARK SMART OCR */
+
+.smart-ocr-result {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.ocr-confidence {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 18px;
+}
+
+.smart-information-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 20px 0;
+}
+
+.smart-field {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid #e2e8e5;
+    border-radius: 12px;
+    background: #f7faf8;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-wrap: anywhere;
+}
+
+.smart-field-label {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.smart-field-value {
+    color: #173c2b;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.smart-field small {
+    font-size: 11px;
+    color: #64748b;
+}
+
+.possible-dates {
+    padding: 14px;
+    margin: 15px 0;
+    border-radius: 12px;
+    background: #fff8e8;
+}
+
+.possible-dates h4 {
+    margin-top: 0;
+}
+
+.ocr-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    line-height: 1.7;
+    padding: 14px;
+    border-radius: 12px;
+    background: #f4f6f5;
+    font-size: 12px;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+@media (max-width: 420px) {
+    .smart-information-grid {
+        grid-template-columns: 1fr;
+    }
+}
