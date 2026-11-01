@@ -1,6 +1,6 @@
 /* ==========================================
    TRUEMARK — PRODUCT SCANNER & VERIFICATION
-   Version 2.0
+   Version 2.1
 ========================================== */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -66,13 +66,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 3000);
     }
 
-    function normalize(value) {
-        return String(value || "")
-            .trim()
-            .toLowerCase()
-            .replace(/\s+/g, " ");
-    }
-
     function getHistory() {
         try {
             return JSON.parse(
@@ -100,7 +93,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 4. VERIFICATION ENGINE CONNECTION
+    // 4. VERIFICATION ENGINE
     // ========================================
 
     function verifyProductInformation(product) {
@@ -125,20 +118,17 @@ document.addEventListener("DOMContentLoaded", () => {
             return {
                 status: "verification_error",
                 title: "Verification could not be completed",
-                message: "An error occurred while checking the available product information.",
+                message: "An error occurred while checking product information.",
                 verified: false
             };
         }
     }
 
     // ========================================
-    // 5. DISPLAY VERIFICATION RESULT
+    // 5. VERIFICATION DISPLAY
     // ========================================
 
     function getVerificationHTML(result) {
-
-        const title = escapeHTML(result.title);
-        const message = escapeHTML(result.message);
 
         let warning = "";
 
@@ -156,6 +146,7 @@ document.addEventListener("DOMContentLoaded", () => {
             checks = `
                 <div class="verification-checks">
                     <h4>Information comparison</h4>
+
                     ${Object.entries(result.checks).map(([key, value]) => `
                         <p>
                             ${escapeHTML(key)}:
@@ -168,24 +159,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
         return `
             <div class="verification-result">
-                <h3>${title}</h3>
-                <p>${message}</p>
+
+                <h3>${escapeHTML(result.title)}</h3>
+
+                <p>${escapeHTML(result.message)}</p>
+
                 ${warning}
                 ${checks}
+
             </div>
         `;
     }
 
     // ========================================
-    // 6. PRODUCT RESULT DISPLAY
+    // 6. PRODUCT RESULT
     // ========================================
 
     function displayProduct(product, source = "barcode") {
 
         const verification = verifyProductInformation(product);
 
-        const name = escapeHTML(product.name || "Unknown product");
-        const brand = escapeHTML(product.brand || "Not identified");
+        const name = escapeHTML(
+            product.name || "Unknown product"
+        );
+
+        const brand = escapeHTML(
+            product.brand || "Not identified"
+        );
+
         const manufacturer = escapeHTML(
             product.manufacturer || "Not available"
         );
@@ -225,8 +226,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${getVerificationHTML(verification)}
 
                 <p class="verification-warning">
-                    Product identification and matching records do not
-                    automatically authenticate the physical item.
+                    Product identification does not automatically
+                    authenticate the physical item.
                 </p>
 
                 <button
@@ -248,11 +249,8 @@ document.addEventListener("DOMContentLoaded", () => {
             status: verification.status
         });
 
-        const scanAgainButton = document.getElementById(
-            "scanAgainButton"
-        );
-
-        scanAgainButton.addEventListener("click", resetScanner);
+        document.getElementById("scanAgainButton")
+            .addEventListener("click", resetScanner);
     }
 
     function displayNotFound(barcode) {
@@ -271,12 +269,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 <p class="verification-warning">
                     This does not mean the product is counterfeit.
-                    The product may simply be missing from the database.
                 </p>
 
-                <p>
-                    Barcode: ${escapeHTML(barcode)}
-                </p>
+                <p>Barcode: ${escapeHTML(barcode)}</p>
 
                 <button
                     type="button"
@@ -301,13 +296,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 7. OPEN FOOD FACTS LOOKUP
+    // 7. BARCODE DATABASE LOOKUP
     // ========================================
 
     async function lookupBarcode(barcode) {
 
         scannerStatus.textContent =
-            "Checking available product information...";
+            "Checking product information...";
 
         try {
 
@@ -321,11 +316,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const data = await response.json();
 
-            if (
-                data.status !== 1 ||
-                !data.product
-            ) {
+            if (data.status !== 1 || !data.product) {
+
                 displayNotFound(barcode);
+
                 scannerStatus.textContent =
                     "Product information search completed.";
 
@@ -355,6 +349,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             scanResult.innerHTML = `
                 <div class="verification-result">
+
                     <h3>Database connection unavailable</h3>
 
                     <p>
@@ -362,7 +357,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     </p>
 
                     <p class="verification-warning">
-                        Please check your internet connection and try again.
                         No authenticity conclusion has been made.
                     </p>
 
@@ -373,6 +367,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     >
                         Try again
                     </button>
+
                 </div>
             `;
 
@@ -385,7 +380,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 8. BARCODE SCANNER
+    // 8. CAMERA MANAGEMENT
     // ========================================
 
     async function stopCamera() {
@@ -403,9 +398,14 @@ document.addEventListener("DOMContentLoaded", () => {
         cameraRunning = false;
     }
 
+    // ========================================
+    // 9. BARCODE SCANNER
+    // ========================================
+
     async function startBarcodeScanner() {
 
         if (typeof Html5Qrcode === "undefined") {
+
             scannerStatus.textContent =
                 "Barcode scanner library could not load.";
 
@@ -480,7 +480,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 9. LABEL OCR
+    // 10. LABEL INFORMATION EXTRACTION
     // ========================================
 
     function extractLabelInformation(text) {
@@ -524,6 +524,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 : null
         };
     }
+
+    // ========================================
+    // 11. LABEL OCR
+    // ========================================
 
     async function scanLabel(file) {
 
@@ -578,10 +582,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const extractedText = result.data.text.trim();
 
             if (!extractedText) {
-
-                throw new Error(
-                    "No readable text was detected."
-                );
+                throw new Error("No readable text was detected.");
             }
 
             const information =
@@ -592,22 +593,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 brand: "",
                 manufacturer: ""
             });
-
-            const batch = information.batchNumber
-                ? escapeHTML(information.batchNumber)
-                : "Not identified";
-
-            const expiry = information.expiryDate
-                ? escapeHTML(information.expiryDate)
-                : "Not identified";
-
-            const manufactured = information.manufacturingDate
-                ? escapeHTML(information.manufacturingDate)
-                : "Not identified";
-
-            const nafdac = information.nafdacNumber
-                ? escapeHTML(information.nafdacNumber)
-                : "Not identified";
 
             scanResult.innerHTML = `
                 <div class="ocr-result">
@@ -628,22 +613,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
                         <p>
                             <strong>Batch / Lot number:</strong>
-                            ${batch}
+                            ${escapeHTML(information.batchNumber || "Not identified")}
                         </p>
 
                         <p>
                             <strong>Expiry date:</strong>
-                            ${expiry}
+                            ${escapeHTML(information.expiryDate || "Not identified")}
                         </p>
 
                         <p>
                             <strong>Manufacturing date:</strong>
-                            ${manufactured}
+                            ${escapeHTML(information.manufacturingDate || "Not identified")}
                         </p>
 
                         <p>
                             <strong>NAFDAC number:</strong>
-                            ${nafdac}
+                            ${escapeHTML(information.nafdacNumber || "Not identified")}
                         </p>
 
                     </div>
@@ -655,8 +640,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     <pre class="ocr-text">${escapeHTML(extractedText)}</pre>
 
                     <p class="verification-warning">
-                        OCR can misread packaging. Extracted numbers and
-                        dates have not been checked against official records.
+                        OCR can misread packaging. Extracted information
+                        has not been checked against official records.
                         No authenticity or safety confirmation has been made.
                     </p>
 
@@ -695,9 +680,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                     <h3>Unable to read label</h3>
 
-                    <p>
-                        ${escapeHTML(error.message)}
-                    </p>
+                    <p>${escapeHTML(error.message)}</p>
 
                     <p>
                         Try taking another photograph with better lighting
@@ -731,7 +714,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 10. PRODUCT SEARCH
+    // 12. PRODUCT SEARCH
     // ========================================
 
     async function searchProducts(query) {
@@ -772,14 +755,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 scanResult.innerHTML = `
                     <div class="verification-result">
+
                         <h3>No product information found</h3>
+
                         <p>
                             No matching product was found in the
                             available database.
                         </p>
+
                         <p class="verification-warning">
                             This does not mean the product is counterfeit.
                         </p>
+
                     </div>
                 `;
 
@@ -836,7 +823,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 11. SCAN HISTORY
+    // 13. HISTORY
     // ========================================
 
     function renderHistory() {
@@ -865,6 +852,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="history-item">
 
                         <div>
+
                             <strong>
                                 ${escapeHTML(item.name)}
                             </strong>
@@ -880,6 +868,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             <small>
                                 ${date.toLocaleString()}
                             </small>
+
                         </div>
 
                         <span class="history-status">
@@ -893,12 +882,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 12. OPEN AND CLOSE SCANNER
+    // 14. SCANNER MODAL
     // ========================================
 
     function openScanner() {
 
-        scannerModal.classList.add("active");
+        scannerModal.classList.add("open");
 
         scannerModal.setAttribute("aria-hidden", "false");
 
@@ -916,7 +905,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         await stopCamera();
 
-        scannerModal.classList.remove("active");
+        scannerModal.classList.remove("open");
 
         scannerModal.setAttribute("aria-hidden", "true");
 
@@ -942,7 +931,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ========================================
-    // 13. EVENT LISTENERS
+    // 15. EVENT LISTENERS
     // ========================================
 
     scanButton.addEventListener("click", openScanner);
@@ -968,9 +957,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
     labelScanButton.addEventListener("click", () => {
-
         labelImageInput.click();
-
     });
 
     labelImageInput.addEventListener("change", event => {
@@ -1042,7 +1029,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
     // ========================================
-    // 14. INITIALISE
+    // 16. INITIALISE
     // ========================================
 
     renderHistory();
