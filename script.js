@@ -1,1928 +1,1029 @@
-/* ==========================================
-   TRUEMARK — SMART PRODUCT SCANNER
-   Version 3.1
-   Barcode + Enhanced OCR + Product Search
-   Improved Diagnostics + Date Recognition
-========================================== */
+/* =========================================================
+   TRUEMARK 4.0 — PRODUCT LABEL RECOGNITION
+   Browser OCR only. Recognition is not authenticity verification.
+========================================================= */
 
 document.addEventListener("DOMContentLoaded", () => {
+  const $ = id => document.getElementById(id);
 
-    // ========================================
-    // 1. ELEMENTS
-    // ========================================
+  const scanButton = $("scanButton");
+  const navScan = $("navScan");
+  const scannerModal = $("scannerModal");
+  const closeScanner = $("closeScanner");
+  const startCameraButton = $("startCamera");
+  const labelScanButton = $("labelScanButton");
+  const labelImageInput = $("labelImageInput");
+  const scannerStatus = $("scannerStatus");
+  const scanResult = $("scanResult");
+  const historyList = $("historyList");
+  const toast = $("toast");
 
-    const scanButton = document.getElementById("scanButton");
-    const navScan = document.getElementById("navScan");
-    const scannerModal = document.getElementById("scannerModal");
-    const closeScanner = document.getElementById("closeScanner");
+  const HISTORY_KEY = "truemarkScanHistory";
 
-    const startCamera = document.getElementById("startCamera");
-    const labelScanButton = document.getElementById("labelScanButton");
-    const labelImageInput = document.getElementById("labelImageInput");
+  let html5QrCode = null;
+  let cameraRunning = false;
+  let startingCamera = false;
+  let processingScan = false;
 
-    const reader = document.getElementById("reader");
-    const scannerStatus = document.getElementById("scannerStatus");
-    const scanResult = document.getElementById("scanResult");
+  if (labelImageInput) {
+    labelImageInput.multiple = true;
+    labelImageInput.accept = "image/*";
+  }
 
-    const searchForm = document.getElementById("searchForm");
-    const productSearch = document.getElementById("productSearch");
+  function showToast(message) {
+    if (!toast) return;
 
-    const historyList = document.getElementById("historyList");
-    const viewHistory = document.getElementById("viewHistory");
+    toast.textContent = message;
+    toast.classList.add("show");
 
-    const toast = document.getElementById("toast");
+    clearTimeout(showToast.timer);
 
-    // ========================================
-    // 2. APPLICATION STATE
-    // ========================================
+    showToast.timer = setTimeout(() => {
+      toast.classList.remove("show");
+    }, 3000);
+  }
 
-    let html5QrCode = null;
-    let cameraRunning = false;
-    let processingScan = false;
-    let toastTimer = null;
+  function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, ch => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[ch]);
+  }
 
-    const HISTORY_KEY = "truemarkScanHistory";
+  function getHistory() {
+    try {
+      const data = JSON.parse(
+        localStorage.getItem(HISTORY_KEY) || "[]"
+      );
 
-    // ========================================
-    // 3. GENERAL HELPERS
-    // ========================================
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }
 
-    function escapeHTML(value) {
+  function saveScan(identifier, name, method) {
+    try {
+      const history = getHistory();
 
-        return String(value ?? "").replace(/[&<>"']/g, char => ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#039;"
-        })[char]);
+      history.unshift({
+        barcode: identifier || "No barcode",
+        name: name || "Product label scan",
+        method: method || "Scanned",
+        date: new Date().toLocaleString()
+      });
 
+      localStorage.setItem(
+        HISTORY_KEY,
+        JSON.stringify(history.slice(0, 30))
+      );
+
+      displayHistory();
+    } catch (error) {
+      console.warn("Could not save scan history:", error);
+    }
+  }
+
+  function displayHistory() {
+    if (!historyList) return;
+
+    const history = getHistory();
+
+    if (!history.length) {
+      historyList.innerHTML = `
+        <div class="empty-state">
+          <span class="empty-icon">▦</span>
+          <h3>No scans yet</h3>
+          <p>Products you scan will appear here.</p>
+        </div>
+      `;
+      return;
     }
 
-    function setStatus(message) {
+    historyList.innerHTML = history.map(item => `
+      <div class="history-item">
+        <div>
+          <strong>${escapeHTML(item.name)}</strong>
+          <small>
+            ${escapeHTML(item.method || "Scanned")}
+            · ${escapeHTML(item.barcode)}
+          </small>
+          <small>${escapeHTML(item.date)}</small>
+        </div>
+        <span class="history-badge">Scanned</span>
+      </div>
+    `).join("");
+  }
 
-        if (scannerStatus) {
-            scannerStatus.textContent = message;
-        }
+  function openScanner() {
+    if (!scannerModal) return;
 
+    processingScan = false;
+
+    scanResult.hidden = true;
+    scanResult.innerHTML = "";
+
+    startCameraButton.hidden = false;
+    startCameraButton.disabled = false;
+    startCameraButton.textContent = "Scan barcode";
+
+    scannerStatus.textContent =
+      "Choose a scanning method to begin.";
+
+    scannerModal.classList.add("open");
+    scannerModal.setAttribute("aria-hidden", "false");
+  }
+
+  async function startCamera() {
+    if (cameraRunning || startingCamera) return;
+
+    if (typeof Html5Qrcode === "undefined") {
+      scannerStatus.textContent =
+        "Barcode scanner did not load. Check your connection and reload.";
+      return;
     }
 
-    function showToast(message) {
+    startingCamera = true;
 
-        if (!toast) return;
+    startCameraButton.disabled = true;
+    startCameraButton.textContent = "Starting camera...";
 
-        toast.textContent = message;
-        toast.classList.add("show");
+    scannerStatus.textContent =
+      "Requesting camera permission...";
 
-        clearTimeout(toastTimer);
+    try {
+      $("reader").innerHTML = "";
 
-        toastTimer = setTimeout(() => {
-            toast.classList.remove("show");
-        }, 3000);
+      html5QrCode = new Html5Qrcode("reader");
 
+      const formats = [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.QR_CODE
+      ];
+
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: {
+            width: 250,
+            height: 150
+          },
+          formatsToSupport: formats
+        },
+        onScanSuccess,
+        () => {}
+      );
+
+      cameraRunning = true;
+
+      startCameraButton.hidden = true;
+
+      scannerStatus.textContent =
+        "Camera active. Position a barcode inside the frame.";
+
+    } catch (error) {
+      console.error("Camera error:", error);
+
+      scannerStatus.textContent =
+        "Unable to access the camera. Check browser camera permissions.";
+
+      startCameraButton.hidden = false;
+      startCameraButton.textContent = "Try camera again";
+
+    } finally {
+      startingCamera = false;
+      startCameraButton.disabled = false;
+    }
+  }
+
+  async function stopCamera() {
+    if (html5QrCode && cameraRunning) {
+      try {
+        await html5QrCode.stop();
+      } catch (error) {
+        console.warn("Camera stop:", error);
+      }
     }
 
-    function getHistory() {
+    cameraRunning = false;
+    html5QrCode = null;
 
-        try {
+    if ($("reader")) {
+      $("reader").innerHTML = "";
+    }
+  }
 
-            const history = JSON.parse(
-                localStorage.getItem(HISTORY_KEY) || "[]"
-            );
+  async function onScanSuccess(decodedText) {
+    if (!cameraRunning || processingScan) return;
 
-            return Array.isArray(history) ? history : [];
+    processingScan = true;
+    cameraRunning = false;
 
-        } catch (error) {
+    scannerStatus.textContent =
+      "Barcode detected. Looking up product information...";
 
-            console.warn("History retrieval error:", error);
-            return [];
-
-        }
-
+    try {
+      if (html5QrCode && html5QrCode.isScanning) {
+        await html5QrCode.stop();
+      }
+    } catch (error) {
+      console.warn(error);
     }
 
-    function saveHistory(item) {
+    html5QrCode = null;
 
-        const history = getHistory();
+    await lookupProduct(decodedText);
+  }
 
-        history.unshift({
-            ...item,
-            date: new Date().toISOString()
-        });
+  async function lookupProduct(barcode) {
+    const fields =
+      "code,product_name,brands,categories,quantity,image_url,countries,manufacturing_places";
 
-        try {
+    const url =
+      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=${fields}`;
 
-            localStorage.setItem(
-                HISTORY_KEY,
-                JSON.stringify(history.slice(0, 30))
-            );
+    try {
+      const response = await fetch(url);
 
-        } catch (error) {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
-            console.warn("History storage error:", error);
+      const data = await response.json();
 
-        }
+      if (data.status !== 1 || !data.product) {
+        showProductNotFound(barcode);
 
-        renderHistory();
-
-    }
-
-    // ========================================
-    // 4. VERIFICATION ENGINE
-    // ========================================
-
-    function verifyProductInformation(product) {
-
-        if (
-            typeof TrueMarkVerification === "undefined" ||
-            typeof TrueMarkVerification.verifyProduct !== "function"
-        ) {
-
-            return {
-                status: "engine_unavailable",
-                title: "Verification service unavailable",
-                message: "TrueMark could not load its verification engine.",
-                verified: false
-            };
-
-        }
-
-        try {
-
-            return TrueMarkVerification.verifyProduct(product);
-
-        } catch (error) {
-
-            console.error("Verification error:", error);
-
-            return {
-                status: "verification_error",
-                title: "Verification could not be completed",
-                message: "An error occurred while checking product information.",
-                verified: false
-            };
-
-        }
-
-    }
-
-    // ========================================
-    // 5. VERIFICATION DISPLAY
-    // ========================================
-
-    function getVerificationHTML(result) {
-
-        let warning = "";
-
-        if (result.warning) {
-
-            warning = `
-                <p class="verification-warning">
-                    ${escapeHTML(result.warning)}
-                </p>
-            `;
-
-        }
-
-        let checks = "";
-
-        if (result.checks) {
-
-            checks = `
-                <div class="verification-checks">
-
-                    <h4>Information comparison</h4>
-
-                    ${Object.entries(result.checks).map(([key, value]) => `
-
-                        <p>
-                            ${escapeHTML(key)}:
-                            ${value ? "Match" : "Mismatch"}
-                        </p>
-
-                    `).join("")}
-
-                </div>
-            `;
-
-        }
-
-        return `
-            <div class="verification-result">
-
-                <h3>${escapeHTML(result.title)}</h3>
-
-                <p>${escapeHTML(result.message)}</p>
-
-                ${warning}
-                ${checks}
-
-            </div>
-        `;
-
-    }
-
-    // ========================================
-    // 6. PRODUCT RESULT
-    // ========================================
-
-    function displayProduct(product, source = "barcode") {
-
-        const verification = verifyProductInformation(product);
-
-        const name = escapeHTML(
-            product.name || "Unknown product"
+        saveScan(
+          barcode,
+          "Product not found in current database",
+          "Barcode"
         );
 
-        const brand = escapeHTML(
-            product.brand || "Not identified"
-        );
+        return;
+      }
 
-        const manufacturer = escapeHTML(
-            product.manufacturer || "Not available"
-        );
+      const product = data.product;
 
-        const image = product.image
-            ? `
-                <img
-                    src="${escapeHTML(product.image)}"
-                    alt="${name}"
-                    class="product-image"
-                    onerror="this.style.display='none'"
-                >
-            `
-            : "";
+      displayProduct(product, barcode);
 
-        if (!scanResult) return;
+      saveScan(
+        barcode,
+        product.product_name || product.brands || "Product information found",
+        "Barcode"
+      );
 
-        scanResult.hidden = false;
+      showToast("Product information retrieved.");
 
-        scanResult.innerHTML = `
-            <div class="product-details">
+    } catch (error) {
+      console.error("Product lookup error:", error);
 
-                ${image}
+      showProductUnavailable(barcode, error.message);
 
-                <h3>${name}</h3>
-
-                <p><strong>Brand:</strong> ${brand}</p>
-
-                <p>
-                    <strong>Manufacturer:</strong>
-                    ${manufacturer}
-                </p>
-
-                <p>
-                    <strong>Barcode:</strong>
-                    ${escapeHTML(product.barcode || "Not available")}
-                </p>
-
-                ${getVerificationHTML(verification)}
-
-                <p class="verification-warning">
-                    Product identification does not automatically
-                    authenticate the physical item.
-                </p>
-
-                <button
-                    type="button"
-                    class="scan-again-button"
-                    id="scanAgainButton"
-                >
-                    Scan another product
-                </button>
-
-            </div>
-        `;
-
-        saveHistory({
-
-            name: product.name || "Unknown product",
-            brand: product.brand || "",
-            barcode: product.barcode || "",
-            source,
-            status: verification.status
-
-        });
-
-        document.getElementById("scanAgainButton")
-            ?.addEventListener("click", resetScanner);
-
+      saveScan(
+        barcode,
+        "Product lookup unavailable",
+        "Barcode"
+      );
     }
+  }
 
-    function displayNotFound(barcode) {
+  function addScanAgainButton(
+    action = resetScanner,
+    label = "Scan another product"
+  ) {
+    const button = $("scanAgain");
 
-        if (!scanResult) return;
-
-        scanResult.hidden = false;
-
-        scanResult.innerHTML = `
-            <div class="verification-result">
-
-                <h3>Product information not found</h3>
-
-                <p>
-                    TrueMark could not find a matching product record
-                    for this barcode.
-                </p>
-
-                <p class="verification-warning">
-                    This does not mean the product is counterfeit.
-                </p>
-
-                <p>Barcode: ${escapeHTML(barcode)}</p>
-
-                <button
-                    type="button"
-                    class="scan-again-button"
-                    id="scanAgainButton"
-                >
-                    Scan another product
-                </button>
-
-            </div>
-        `;
-
-        saveHistory({
-
-            name: "Unknown product",
-            barcode,
-            source: "barcode",
-            status: "not_found"
-
-        });
-
-        document.getElementById("scanAgainButton")
-            ?.addEventListener("click", resetScanner);
-
+    if (button) {
+      button.addEventListener("click", action);
+      button.textContent = label;
     }
-
-    // ========================================
-    // 7. BARCODE DATABASE LOOKUP
-    // ========================================
-
-    async function lookupBarcode(barcode) {
-
-        setStatus("Checking product information...");
-
-        if (!barcode) {
-
-            setStatus("No barcode was detected.");
-            return;
-
-        }
-
-        try {
-
-            const url =
-                `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,brands,categories,quantity,image_url,manufacturing_places`;
-
-            const response = await fetch(url, {
-                method: "GET",
-                headers: {
-                    "Accept": "application/json"
-                }
-            });
-
-            if (!response.ok) {
-
-                throw new Error(
-                    `Database returned HTTP ${response.status} ${response.statusText}.`
-                );
-
-            }
-
-            let data;
-
-            try {
-
-                data = await response.json();
-
-            } catch {
-
-                throw new Error(
-                    "The product database returned an invalid response."
-                );
-
-            }
-
-            if (data.status !== 1 || !data.product) {
-
-                displayNotFound(barcode);
-
-                setStatus(
-                    "Product information search completed."
-                );
-
-                return;
-
-            }
-
-            const item = data.product;
-
-            displayProduct({
-
-                name: item.product_name || "",
-                brand: item.brands || "",
-
-                // Manufacturing places are not manufacturers.
-                manufacturer: "",
-
-                barcode: item.code || barcode,
-                image: item.image_url || "",
-                categories: item.categories || "",
-                quantity: item.quantity || ""
-
-            });
-
-            setStatus(
-                "Product information retrieved. Authenticity not confirmed."
-            );
-
-        } catch (error) {
-
-            console.error("Barcode lookup error:", error);
-
-            if (scanResult) {
-
-                scanResult.hidden = false;
-
-                scanResult.innerHTML = `
-                    <div class="verification-result">
-
-                        <h3>Database connection unavailable</h3>
-
-                        <p>
-                            TrueMark could not retrieve product information.
-                        </p>
-
-                        <p class="verification-warning">
-                            No authenticity conclusion has been made.
-                        </p>
-
-                        <p class="diagnostic-message">
-                            ${escapeHTML(error.message || "Unknown connection error.")}
-                        </p>
-
-                        <button
-                            type="button"
-                            class="scan-again-button"
-                            id="scanAgainButton"
-                        >
-                            Try again
-                        </button>
-
-                    </div>
-                `;
-
-                document.getElementById("scanAgainButton")
-                    ?.addEventListener("click", resetScanner);
-
-            }
-
-            setStatus(
-                "Product lookup failed. Check your internet connection and try again."
-            );
-
-        }
-
-    }
-
-    // ========================================
-    // 8. CAMERA MANAGEMENT
-    // ========================================
-
-    async function stopCamera() {
-
-        if (!html5QrCode || !cameraRunning) {
-            return;
-        }
-
-        try {
-
-            await html5QrCode.stop();
-
-        } catch (error) {
-
-            console.warn("Camera stop:", error);
-
-        }
-
-        cameraRunning = false;
-
-    }
-
-    // ========================================
-    // 9. BARCODE SCANNER
-    // ========================================
-
-    async function startBarcodeScanner() {
-
-        if (!reader) {
-
-            setStatus("Scanner display could not be found.");
-            return;
-
-        }
-
-        if (typeof Html5Qrcode === "undefined") {
-
-            setStatus(
-                "Barcode scanner library could not load. Refresh the page and try again."
-            );
-
-            return;
-
-        }
-
-        await stopCamera();
-
-        scanResult.hidden = true;
-        reader.innerHTML = "";
-
-        processingScan = false;
-
-        setStatus("Starting camera...");
-
-        try {
-
-            html5QrCode = new Html5Qrcode("reader");
-
-            const formats = [
-
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.UPC_A,
-                Html5QrcodeSupportedFormats.UPC_E,
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39,
-                Html5QrcodeSupportedFormats.ITF,
-                Html5QrcodeSupportedFormats.QR_CODE
-
-            ];
-
-            await html5QrCode.start(
-
-                { facingMode: "environment" },
-
-                {
-                    fps: 10,
-
-                    qrbox: {
-                        width: 250,
-                        height: 150
-                    },
-
-                    formatsToSupport: formats
-                },
-
-                async decodedText => {
-
-                    if (processingScan) return;
-
-                    processingScan = true;
-
-                    setStatus(
-                        "Barcode detected. Checking product..."
-                    );
-
-                    await stopCamera();
-
-                    await lookupBarcode(decodedText);
-
-                },
-
-                () => {}
-
-            );
-
-            cameraRunning = true;
-
-            setStatus(
-                "Position the barcode inside the scanning area."
-            );
-
-        } catch (error) {
-
-            console.error("Camera error:", error);
-
-            cameraRunning = false;
-
-            setStatus(
-                "Unable to access camera. Check browser permissions and ensure the site uses HTTPS."
-            );
-
-        }
-
-    }
-
-    // ========================================
-    // 10. SMART OCR — TEXT NORMALISATION
-    // ========================================
-
-    function normalizeOCRText(text) {
-
-        return String(text || "")
-
-            .replace(/\r/g, "\n")
-
-            .replace(/[ \t]+/g, " ")
-
-            .replace(/\n{3,}/g, "\n\n")
-
-            .trim();
-
-    }
-
-    // ========================================
-    // 11. IMAGE ENHANCEMENT
-    // ========================================
-
-    async function prepareOCRImage(file, mode = "enhanced") {
-
-        const image = await createImageBitmap(file);
-
-        try {
-
-            const longestSide = Math.max(
-                image.width,
-                image.height
-            );
-
-            const scale = Math.max(
-                1,
-                Math.min(3, 2400 / longestSide)
-            );
-
-            const canvas = document.createElement("canvas");
-
-            canvas.width = Math.round(image.width * scale);
-            canvas.height = Math.round(image.height * scale);
-
-            const context = canvas.getContext("2d", {
-                willReadFrequently: true
-            });
-
-            if (!context) {
-
-                throw new Error(
-                    "Image processing is unavailable in this browser."
-                );
-
-            }
-
-            context.drawImage(
-                image,
-                0,
-                0,
-                canvas.width,
-                canvas.height
-            );
-
-            const imageData = context.getImageData(
-                0,
-                0,
-                canvas.width,
-                canvas.height
-            );
-
-            const pixels = imageData.data;
-
-            for (let i = 0; i < pixels.length; i += 4) {
-
-                let gray =
-                    0.299 * pixels[i] +
-                    0.587 * pixels[i + 1] +
-                    0.114 * pixels[i + 2];
-
-                if (mode === "high-contrast") {
-
-                    gray = (gray - 128) * 1.7 + 128;
-
-                } else {
-
-                    gray = (gray - 128) * 1.35 + 128;
-
-                }
-
-                gray = Math.max(0, Math.min(255, gray));
-
-                pixels[i] = gray;
-                pixels[i + 1] = gray;
-                pixels[i + 2] = gray;
-
-            }
-
-            context.putImageData(imageData, 0, 0);
-
-            return canvas;
-
-        } finally {
-
-            image.close();
-
-        }
-
-    }
-
-    // ========================================
-    // 12. MULTIPLE OCR PASSES
-    // ========================================
-
-    async function runSmartOCR(file) {
-
-        const results = [];
-
-        const modes = [
-            "enhanced",
-            "high-contrast"
-        ];
-
-        for (const mode of modes) {
-
-            setStatus(
-                mode === "enhanced"
-                    ? "Enhancing product photograph..."
-                    : "Running additional text recognition..."
-            );
-
-            const canvas = await prepareOCRImage(file, mode);
-
-            const result = await Tesseract.recognize(
-                canvas,
-                "eng",
-                {
-
-                    logger: message => {
-
-                        if (message.status === "recognizing text") {
-
-                            const progress = Math.round(
-                                message.progress * 100
-                            );
-
-                            setStatus(
-                                `Analysing product label: ${progress}%`
-                            );
-
-                        }
-
-                    }
-
-                }
-            );
-
-            results.push({
-
-                text: normalizeOCRText(result.data.text),
-
-                confidence: Number(
-                    result.data.confidence || 0
-                ),
-
-                mode
-
-            });
-
-        }
-
-        results.sort((a, b) => {
-
-            const scoreA =
-                a.confidence + (a.text.length > 20 ? 5 : 0);
-
-            const scoreB =
-                b.confidence + (b.text.length > 20 ? 5 : 0);
-
-            return scoreB - scoreA;
-
-        });
-
-        return results[0];
-
-    }
-
-    // ========================================
-    // 13. IMPROVED DATE RECOGNITION
-    // ========================================
-
-    function isValidDateMatch(value) {
-
-        const cleaned = String(value || "")
-            .trim()
-            .replace(/,/g, "");
-
-        // Reject phone-number-like values.
-        if (/^\d{1,2}-\d{3,}-\d+$/.test(cleaned)) {
-            return false;
-        }
-
-        // Numeric dates: DD/MM/YYYY, MM/YYYY, YYYY-MM-DD.
-        let match = cleaned.match(
-            /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/
-        );
-
-        if (match) {
-
-            const first = Number(match[1]);
-            const second = Number(match[2]);
-            const year = Number(match[3]);
-
-            return (
-                first >= 1 && first <= 31 &&
-                second >= 1 && second <= 12 &&
-                year >= 2000 && year <= 2099
-            );
-
-        }
-
-        match = cleaned.match(
-            /^(\d{4})[\/.-](\d{1,2})(?:[\/.-](\d{1,2}))?$/
-        );
-
-        if (match) {
-
-            const year = Number(match[1]);
-            const month = Number(match[2]);
-            const day = match[3] ? Number(match[3]) : 1;
-
-            return (
-                year >= 2000 && year <= 2099 &&
-                month >= 1 && month <= 12 &&
-                day >= 1 && day <= 31
-            );
-
-        }
-
-        // Month/year formats such as 11/2027.
-        match = cleaned.match(
-            /^(\d{1,2})[\/.-](\d{4})$/
-        );
-
-        if (match) {
-
-            const month = Number(match[1]);
-            const year = Number(match[2]);
-
-            return (
-                month >= 1 &&
-                month <= 12 &&
-                year >= 2000 &&
-                year <= 2099
-            );
-
-        }
-
-        // Month name formats such as NOV 2027.
-        const monthNames =
-            "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC";
-
-        const monthYearPattern = new RegExp(
-            `^(?:${monthNames})[A-Z]*\\s+\\d{4}$`,
-            "i"
-        );
-
-        if (monthYearPattern.test(cleaned)) {
-            return true;
-        }
-
-        // Formats such as NOV 11 2027 or 11 NOV 2027.
-        const monthDayYearPattern = new RegExp(
-            `^(?:(?:${monthNames})[A-Z]*\\s+\\d{1,2}\\s+\\d{4}|\\d{1,2}\\s+(?:${monthNames})[A-Z]*\\s+\\d{4})$`,
-            "i"
-        );
-
-        return monthDayYearPattern.test(cleaned);
-
-    }
-
-    function findDates(text) {
-
-        const lines = text.split("\n");
-
-        const results = [];
-
-        const datePattern =
-            /\b(?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{1,2}[\/.-]\d{4}|\d{4}[\/.-]\d{1,2}(?:[\/.-]\d{1,2})?|\d{1,2}\s+[A-Z]{3,9}\s+\d{4}|[A-Z]{3,9}\s+\d{1,2},?\s+\d{4}|[A-Z]{3,9}\s+\d{4})\b/gi;
-
-        const keywords = {
-
-            expiry:
-                /\b(EXP|EXPIRY|EXPIRES|USE BY|BEST BEFORE|BBE)\b/i,
-
-            manufacturing:
-                /\b(MFG|MFD|MANUFACTURED|PRODUCTION DATE)\b/i
-
-        };
-
-        lines.forEach((line, index) => {
-
-            const matches = [...line.matchAll(datePattern)];
-
-            matches.forEach(match => {
-
-                const value = match[0].trim();
-
-                if (!isValidDateMatch(value)) {
-                    return;
-                }
-
-                const previousLine = lines[index - 1] || "";
-                const nextLine = lines[index + 1] || "";
-
-                const context =
-                    `${previousLine} ${line} ${nextLine}`;
-
-                if (keywords.expiry.test(context)) {
-
-                    results.push({
-
-                        type: "expiry",
-                        value,
-                        confidence: "contextual"
-
-                    });
-
-                } else if (keywords.manufacturing.test(context)) {
-
-                    results.push({
-
-                        type: "manufacturing",
-                        value,
-                        confidence: "contextual"
-
-                    });
-
-                } else {
-
-                    results.push({
-
-                        type: "possible_date",
-                        value,
-                        confidence: "unconfirmed"
-
-                    });
-
-                }
-
-            });
-
-        });
-
-        // Remove duplicate detections.
-        return results.filter((date, index, array) => {
-
-            return array.findIndex(item =>
-                item.type === date.type &&
-                item.value === date.value
-            ) === index;
-
-        });
-
-    }
-
-    // ========================================
-    // 14. BATCH / LOT RECOGNITION
-    // ========================================
-
-    function findBatchNumber(text) {
-
-        const lines = text.split("\n");
-
-        const patterns = [
-
-            /\b(?:BATCH|LOT)\s*(?:NO|NUMBER|#)?\s*[:.#-]?\s*([A-Z0-9][A-Z0-9/-]{2,})/i,
-
-            /\b(?:BATCH|LOT)\s*[:#]\s*([A-Z0-9/-]{3,})/i
-
-        ];
-
-        for (const line of lines) {
-
-            for (const pattern of patterns) {
-
-                const match = line.match(pattern);
-
-                if (match) {
-
-                    return {
-
-                        value: match[1],
-                        confidence: "contextual"
-
-                    };
-
-                }
-
-            }
-
-        }
-
-        return null;
-
-    }
-
-    // ========================================
-    // 15. NAFDAC RECOGNITION
-    // ========================================
-
-    function findNafdacNumber(text) {
-
-        const match = text.match(
-
-            /\bNAFDAC\b[\s\S]{0,25}?([A-Z0-9/-]{4,})/i
-
-        );
-
-        return match ? match[1] : null;
-
-    }
-
-    // ========================================
-    // 16. PRODUCT NAME RECOGNITION
-    // ========================================
-
-    function findPossibleProductName(text) {
-
-        const lines = text
-
-            .split("\n")
-
-            .map(line => line.trim())
-
-            .filter(line => line.length >= 4);
-
-        const ignoredWords =
-
-            /\b(directions|ingredients|warning|caution|distributed|manufactured|storage|keep|apply|dosage|questions|comments|inactive|active|contents|www\.|phone|address|instructions|before use)\b/i;
-
-        const candidates = lines.filter(line => {
-
-            if (ignoredWords.test(line)) return false;
-
-            if (/^[^a-zA-Z]*$/.test(line)) return false;
-
-            if (line.length > 100) return false;
-
-            return true;
-
-        });
-
-        return candidates.slice(0, 2).join(" ") || "";
-
-    }
-
-    // ========================================
-    // 17. MANUFACTURER RECOGNITION
-    // ========================================
-
-    function findManufacturer(text) {
-
-        const match = text.match(
-
-            /\b(?:manufactured by|distributed by|made by)\s*[:\-]?\s*([^\n]{3,100})/i
-
-        );
-
-        return match ? match[1].trim() : null;
-
-    }
-
-    // ========================================
-    // 18. COMBINE EXTRACTED INFORMATION
-    // ========================================
-
-    function extractLabelInformation(text) {
-
-        const normalized = normalizeOCRText(text);
-
-        const dates = findDates(normalized);
-
-        const expiry = dates.find(
-            date => date.type === "expiry"
-        );
-
-        const manufacturing = dates.find(
-            date => date.type === "manufacturing"
-        );
-
-        const possibleDates = dates.filter(
-            date => date.type === "possible_date"
-        );
-
-        const batch = findBatchNumber(normalized);
-
-        return {
-
-            extractedText: normalized,
-
-            possibleProductName:
-                findPossibleProductName(normalized),
-
-            manufacturer:
-                findManufacturer(normalized),
-
-            batchNumber:
-                batch ? batch.value : null,
-
-            batchConfidence:
-                batch ? batch.confidence : "not detected",
-
-            expiryDate:
-                expiry ? expiry.value : null,
-
-            manufacturingDate:
-                manufacturing ? manufacturing.value : null,
-
-            possibleOtherDates:
-                possibleDates.map(date => date.value),
-
-            nafdacNumber:
-                findNafdacNumber(normalized)
-
-        };
-
-    }
-
-    // ========================================
-    // 19. SMART LABEL RESULT DISPLAY
-    // ========================================
-
-    function displaySmartLabelResult(
-        information,
-        verification,
-        confidence
-    ) {
-
-        const displayField = (label, value, note = "") => {
-
-            return `
-
-                <div class="smart-field">
-
-                    <span class="smart-field-label">
-                        ${escapeHTML(label)}
-                    </span>
-
-                    <strong class="smart-field-value">
-                        ${escapeHTML(value || "Not identified")}
-                    </strong>
-
-                    ${note ? `
-                        <small>${escapeHTML(note)}</small>
-                    ` : ""}
-
-                </div>
-
-            `;
-
-        };
-
-        const possibleDates =
-            information.possibleOtherDates || [];
-
-        if (!scanResult) return;
-
-        scanResult.hidden = false;
-
-        scanResult.innerHTML = `
-
-            <div class="ocr-result smart-ocr-result">
-
-                <h3>Product label analysis</h3>
-
-                <p class="ocr-confidence">
-                    OCR recognition confidence:
-                    ${Math.round(confidence)}%
-                </p>
-
-                <div class="smart-information-grid">
-
-                    ${displayField(
-                        "Possible product name",
-                        information.possibleProductName
-                    )}
-
-                    ${displayField(
-                        "Manufacturer / Distributor",
-                        information.manufacturer
-                    )}
-
-                    ${displayField(
-                        "Batch / Lot number",
-                        information.batchNumber,
-                        information.batchConfidence
-                    )}
-
-                    ${displayField(
-                        "Expiry date",
-                        information.expiryDate
-                    )}
-
-                    ${displayField(
-                        "Manufacturing date",
-                        information.manufacturingDate
-                    )}
-
-                    ${displayField(
-                        "NAFDAC number",
-                        information.nafdacNumber
-                    )}
-
-                </div>
-
-                ${possibleDates.length ? `
-
-                    <div class="possible-dates">
-
-                        <h4>Other dates detected</h4>
-
-                        <p>
-                            ${possibleDates
-                                .map(escapeHTML)
-                                .join(", ")}
-                        </p>
-
-                        <small>
-                            These dates have not been classified.
-                        </small>
-
-                    </div>
-
-                ` : ""}
-
-                ${getVerificationHTML(verification)}
-
-                <h4>Recognised packaging text</h4>
-
-                <pre class="ocr-text">${escapeHTML(
-                    information.extractedText
-                )}</pre>
-
-                <p class="verification-warning">
-
-                    OCR results may contain errors. Extracted information
-                    has not been confirmed against official records.
-                    Product identification is not proof of authenticity.
-
-                </p>
-
-                <button
-                    type="button"
-                    class="scan-again-button"
-                    id="scanAgainButton"
-                >
-                    Scan another label
-                </button>
-
-            </div>
-
-        `;
-
-        document.getElementById("scanAgainButton")
-            ?.addEventListener("click", resetScanner);
-
-    }
-
-    // ========================================
-    // 20. SMART LABEL SCANNING
-    // ========================================
-
-    async function scanLabel(file) {
-
-        if (!file) return;
-
-        if (typeof Tesseract === "undefined") {
-
-            setStatus(
-                "Text recognition library could not load."
-            );
-
-            return;
-
-        }
-
-        if (!file.type.startsWith("image/")) {
-
-            showToast(
-                "Please select a valid product photograph."
-            );
-
-            return;
-
-        }
-
-        await stopCamera();
-
-        if (scanResult) {
-
-            scanResult.hidden = false;
-
-            scanResult.innerHTML = `
-
-                <div class="ocr-result">
-
-                    <h3>TrueMark is analysing your product</h3>
-
-                    <p>
-                        Enhancing the image and recognising packaging information.
-                    </p>
-
-                </div>
-
-            `;
-
-        }
-
-        if (labelScanButton) {
-            labelScanButton.disabled = true;
-        }
-
-        if (startCamera) {
-            startCamera.disabled = true;
-        }
-
-        try {
-
-            const bestResult = await runSmartOCR(file);
-
-            const extractedText = bestResult.text;
-
-            if (!extractedText || extractedText.length < 3) {
-
-                throw new Error(
-                    "TrueMark could not recognise enough text."
-                );
-
-            }
-
-            const information =
-                extractLabelInformation(extractedText);
-
-            // OCR alone cannot identify a trusted product record.
-            const verification = verifyProductInformation({
-
-                name: "",
-                brand: "",
-                manufacturer: ""
-
-            });
-
-            displaySmartLabelResult(
-
-                information,
-                verification,
-                bestResult.confidence
-
-            );
-
-            saveHistory({
-
-                name: information.possibleProductName ||
-                    "Label photograph",
-
-                source: "label",
-
-                status: verification.status,
-
-                batchNumber: information.batchNumber || "",
-
-                expiryDate: information.expiryDate || ""
-
-            });
-
-            setStatus(
-                "Label analysis completed. Authenticity not confirmed."
-            );
-
-        } catch (error) {
-
-            console.error("Smart OCR error:", error);
-
-            if (scanResult) {
-
-                scanResult.hidden = false;
-
-                scanResult.innerHTML = `
-
-                    <div class="ocr-result">
-
-                        <h3>Label recognition unsuccessful</h3>
-
-                        <p>${escapeHTML(error.message)}</p>
-
-                        <p>
-                            Try taking a clearer photograph with the product
-                            label facing the camera.
-                        </p>
-
-                        <button
-                            type="button"
-                            class="scan-again-button"
-                            id="scanAgainButton"
-                        >
-                            Try another photograph
-                        </button>
-
-                    </div>
-
-                `;
-
-            }
-
-            setStatus(
-                "Could not recognise the product label."
-            );
-
-            document.getElementById("scanAgainButton")
-                ?.addEventListener("click", resetScanner);
-
-        } finally {
-
-            if (labelScanButton) {
-                labelScanButton.disabled = false;
-            }
-
-            if (startCamera) {
-                startCamera.disabled = false;
-            }
-
-            if (labelImageInput) {
-                labelImageInput.value = "";
-            }
-
-        }
-
-    }
-
-    // ========================================
-    // 21. PRODUCT SEARCH
-    // ========================================
-
-    async function searchProducts(query) {
-
-        if (!query || !query.trim()) {
-
-            showToast(
-                "Enter a product name or barcode."
-            );
-
-            return;
-
-        }
-
-        showToast(
-            "Searching product database..."
-        );
-
-        try {
-
-            const url =
-
-                "https://world.openfoodfacts.org/cgi/search.pl?" +
-
-                new URLSearchParams({
-
-                    search_terms: query.trim(),
-                    search_simple: "1",
-                    action: "process",
-                    json: "1",
-                    page_size: "10",
-                    fields: "product_name,brands,code,image_url"
-
-                });
-
-            const response = await fetch(url, {
-                method: "GET",
-                headers: {
-                    "Accept": "application/json"
-                }
-            });
-
-            if (!response.ok) {
-
-                throw new Error(
-                    `Search service returned HTTP ${response.status}.`
-                );
-
-            }
-
-            const data = await response.json();
-
-            const products = Array.isArray(data.products)
-                ? data.products
-                : [];
-
-            if (!scanResult) return;
-
-            scanResult.hidden = false;
-
-            if (!products.length) {
-
-                scanResult.innerHTML = `
-
-                    <div class="verification-result">
-
-                        <h3>No product information found</h3>
-
-                        <p>
-                            No matching product was found in the
-                            available database.
-                        </p>
-
-                        <p class="verification-warning">
-                            This does not mean the product is counterfeit.
-                        </p>
-
-                    </div>
-
-                `;
-
-            } else {
-
-                scanResult.innerHTML = `
-
-                    <div class="product-details">
-
-                        <h3>Search results</h3>
-
-                        ${products.map(product => `
-
-                            <div class="history-item">
-
-                                <strong>
-                                    ${escapeHTML(
-                                        product.product_name ||
-                                        "Unknown product"
-                                    )}
-                                </strong>
-
-                                <p>
-                                    Brand:
-                                    ${escapeHTML(product.brands || "Unknown")}
-                                </p>
-
-                                <p>
-                                    Barcode:
-                                    ${escapeHTML(product.code || "Unavailable")}
-                                </p>
-
-                            </div>
-
-                        `).join("")}
-
-                        <p class="verification-warning">
-
-                            These are product information results,
-                            not authenticity confirmations.
-
-                        </p>
-
-                    </div>
-
-                `;
-
-            }
-
-            openScanner();
-
-            setStatus(
-                "Product search completed."
-            );
-
-        } catch (error) {
-
-            console.error("Search error:", error);
-
-            showToast(
-                error.message || "Product search is temporarily unavailable."
-            );
-
-        }
-
-    }
-
-    // ========================================
-    // 22. HISTORY
-    // ========================================
-
-    function renderHistory() {
-
-        if (!historyList) return;
-
-        const history = getHistory();
-
-        if (!history.length) {
-
-            historyList.innerHTML = `
-
-                <div class="empty-state">
-
-                    <span class="empty-icon">▦</span>
-
-                    <h3>No scans yet</h3>
-
-                    <p>Products you scan will appear here.</p>
-
-                </div>
-
-            `;
-
-            return;
-
-        }
-
-        historyList.innerHTML = history.slice(0, 5)
-
-            .map(item => {
-
-                const date = new Date(item.date);
-
-                return `
-
-                    <div class="history-item">
-
-                        <div>
-
-                            <strong>
-                                ${escapeHTML(item.name)}
-                            </strong>
-
-                            <p>
-
-                                ${escapeHTML(
-
-                                    item.source === "label"
-                                        ? "Label OCR · Label photo"
-                                        : "Barcode scan"
-
-                                )}
-
-                            </p>
-
-                            <small>
-                                ${escapeHTML(date.toLocaleString())}
-                            </small>
-
-                        </div>
-
-                        <span class="history-status">
-                            Scanned
-                        </span>
-
-                    </div>
-
-                `;
-
-            }).join("");
-
-    }
-
-    // ========================================
-    // 23. SCANNER MODAL
-    // ========================================
-
-    function openScanner() {
-
-        if (!scannerModal) return;
-
-        scannerModal.classList.add("open");
-
-        scannerModal.setAttribute(
-            "aria-hidden",
-            "false"
-        );
-
-        if (scanResult) {
-            scanResult.hidden = true;
-        }
-
-        if (reader) {
-            reader.innerHTML = "";
-        }
-
-        processingScan = false;
-
-        setStatus(
-            "Choose a scanning method to begin."
-        );
-
-    }
-
-    async function closeScannerModal() {
-
-        await stopCamera();
-
-        if (!scannerModal) return;
-
-        scannerModal.classList.remove("open");
-
-        scannerModal.setAttribute(
-            "aria-hidden",
-            "true"
-        );
-
-        if (reader) {
-            reader.innerHTML = "";
-        }
-
-        processingScan = false;
-
-    }
-
-    function resetScanner() {
-
-        stopCamera().then(() => {
-
-            if (reader) {
-                reader.innerHTML = "";
-            }
-
-            if (scanResult) {
-                scanResult.hidden = true;
-            }
-
-            processingScan = false;
-
-            setStatus(
-                "Choose a scanning method to begin."
-            );
-
-        });
-
-    }
-
-    // ========================================
-    // 24. EVENT LISTENERS
-    // ========================================
-
-    if (scanButton) {
-
-        scanButton.addEventListener(
-            "click",
-            openScanner
-        );
-
-    }
-
-    if (navScan) {
-
-        navScan.addEventListener(
-            "click",
-            openScanner
-        );
-
-    }
-
-    if (closeScanner) {
-
-        closeScanner.addEventListener(
-            "click",
-            closeScannerModal
-        );
-
-    }
-
-    if (scannerModal) {
-
-        scannerModal.addEventListener("click", event => {
-
-            if (event.target === scannerModal) {
-
-                closeScannerModal();
-
-            }
-
-        });
-
-    }
-
-    if (startCamera) {
-
-        startCamera.addEventListener(
-            "click",
-            startBarcodeScanner
-        );
-
-    }
-
-    if (labelScanButton && labelImageInput) {
-
-        labelScanButton.addEventListener("click", () => {
-
-            labelImageInput.click();
-
-        });
-
-        labelImageInput.addEventListener("change", event => {
-
-            const file = event.target.files[0];
-
-            if (file) {
-
-                scanLabel(file);
-
-            }
-
-        });
-
-    }
-
-    if (searchForm && productSearch) {
-
-        searchForm.addEventListener("submit", event => {
-
-            event.preventDefault();
-
-            searchProducts(productSearch.value);
-
-        });
-
-    }
-
-    if (viewHistory) {
-
-        viewHistory.addEventListener("click", () => {
-
-            document.getElementById("history")
-                ?.scrollIntoView({
-
-                    behavior: "smooth"
-
-                });
-
-        });
-
-    }
-
-    document.querySelectorAll(".category-card")
-        .forEach(button => {
-
-            button.addEventListener("click", () => {
-
-                const category = button.dataset.category;
-
-                if (productSearch) {
-
-                    productSearch.value = category;
-
-                }
-
-                searchProducts(category);
-
-            });
-
-        });
-
-    document.querySelectorAll(".nav-item[data-target]")
-        .forEach(button => {
-
-            button.addEventListener("click", () => {
-
-                const target = document.getElementById(
-                    button.dataset.target
-                );
-
-                if (target) {
-
-                    target.scrollIntoView({
-
-                        behavior: "smooth"
-
-                    });
-
-                }
-
-                document.querySelectorAll(".nav-item")
-                    .forEach(item => {
-
-                        item.classList.remove("active");
-
-                    });
-
-                button.classList.add("active");
-
-            });
-
-        });
-
-    // ========================================
-    // 25. INITIALISE
-    // ========================================
-
-    renderHistory();
-
-    console.log(
-        "TrueMark Smart Scanner v3.1 initialised."
+  }
+
+  function showProductNotFound(barcode) {
+    scanResult.innerHTML = `
+      <h3>No matching product record</h3>
+
+      <p>
+        Barcode:
+        <strong>${escapeHTML(barcode)}</strong>
+      </p>
+
+      <div class="verification-warning">
+        <strong>Not enough information to verify</strong>
+
+        <p>
+          This barcode is not listed in the current database.
+          That does not mean the product is counterfeit.
+        </p>
+      </div>
+
+      <button
+        id="scanAgain"
+        class="scan-again-button"
+        type="button"
+      >
+        Scan another product
+      </button>
+    `;
+
+    scanResult.hidden = false;
+
+    scannerStatus.textContent =
+      "No matching product record was found.";
+
+    addScanAgainButton();
+  }
+
+  function showProductUnavailable(barcode, reason) {
+    scanResult.innerHTML = `
+      <h3>Product lookup unavailable</h3>
+
+      <p>
+        Barcode:
+        <strong>${escapeHTML(barcode)}</strong>
+      </p>
+
+      <p>
+        TrueMark could not retrieve product information right now.
+        ${escapeHTML(reason || "")}
+      </p>
+
+      <p>No authenticity conclusion has been made.</p>
+
+      <button
+        id="scanAgain"
+        class="scan-again-button"
+        type="button"
+      >
+        Try again
+      </button>
+    `;
+
+    scanResult.hidden = false;
+
+    scannerStatus.textContent =
+      "Product information service unavailable.";
+
+    addScanAgainButton();
+  }
+
+  function displayProduct(product, barcode) {
+    const fields = [
+      ["Product", product.product_name],
+      ["Brand", product.brands],
+      ["Category", product.categories],
+      ["Quantity", product.quantity],
+      ["Countries listed", product.countries],
+      ["Manufacturing location", product.manufacturing_places],
+      ["Barcode", barcode]
+    ];
+
+    const image = product.image_url || "";
+
+    scanResult.innerHTML = `
+      <span class="result-check">✓</span>
+
+      <h3>Product information found</h3>
+
+      ${image ? `
+        <img
+          src="${escapeHTML(image)}"
+          alt="Product reference"
+          style="
+            width:140px;
+            max-height:150px;
+            object-fit:contain;
+            margin:15px auto;
+            display:block;
+          "
+        >
+      ` : ""}
+
+      <div class="product-details">
+        ${fields.map(([label, value]) => `
+          <p>
+            <strong>${label}:</strong>
+            ${escapeHTML(value || "Not provided")}
+          </p>
+        `).join("")}
+      </div>
+
+      <div class="verification-warning">
+        <strong>Authenticity not confirmed</strong>
+
+        <p>
+          This database record may help identify a product type.
+          It does not authenticate the physical item.
+        </p>
+      </div>
+
+      <p class="result-note">
+        Source: Open Food Facts, a community-contributed database
+        mainly covering food and drinks. Its coverage and entries
+        may be incomplete.
+      </p>
+
+      <button
+        id="scanAgain"
+        class="scan-again-button"
+        type="button"
+      >
+        Scan another product
+      </button>
+    `;
+
+    scanResult.hidden = false;
+
+    scannerStatus.textContent =
+      "Product information retrieved.";
+
+    addScanAgainButton();
+  }
+
+  async function makeEnhancedImage(file) {
+    const bitmap = await createImageBitmap(file);
+
+    const maxSide = 2200;
+
+    const scale = Math.min(
+      2,
+      maxSide / Math.max(bitmap.width, bitmap.height)
     );
 
-    console.log(
-
-        typeof TrueMarkVerification !== "undefined"
-
-            ? "TrueMark verification engine connected."
-
-            : "Warning: verification engine unavailable."
-
+    const width = Math.max(
+      1,
+      Math.round(bitmap.width * scale)
     );
 
+    const height = Math.max(
+      1,
+      Math.round(bitmap.height * scale)
+    );
+
+    const canvas = document.createElement("canvas");
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext("2d", {
+      willReadFrequently: true
+    });
+
+    ctx.drawImage(bitmap, 0, 0, width, height);
+
+    bitmap.close && bitmap.close();
+
+    const frame = ctx.getImageData(
+      0,
+      0,
+      width,
+      height
+    );
+
+    const pixels = frame.data;
+
+    for (let i = 0; i < pixels.length; i += 4) {
+      const gray =
+        0.299 * pixels[i] +
+        0.587 * pixels[i + 1] +
+        0.114 * pixels[i + 2];
+
+      const contrast = Math.max(
+        0,
+        Math.min(255, (gray - 128) * 1.35 + 128)
+      );
+
+      pixels[i] = contrast;
+      pixels[i + 1] = contrast;
+      pixels[i + 2] = contrast;
+    }
+
+    ctx.putImageData(frame, 0, 0);
+
+    return new Promise(resolve => {
+      canvas.toBlob(
+        blob => resolve(blob || file),
+        "image/jpeg",
+        0.92
+      );
+    });
+  }
+
+  function cleanOCRLines(text) {
+    const ignored =
+      /\b(directions?|apply|dosage|dose|use|using|warning|caution|keep out|children|store|inactive ingredients?|questions|comments|distributed|manufactured|made in|www\.|https?:|serving size|nutrition facts|supplement facts)\b/i;
+
+    const seen = new Set();
+
+    return String(text || "")
+      .split(/\r?\n/)
+      .map(line =>
+        line
+          .replace(/[|{}\[\]_*~]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+      )
+      .filter(line => {
+        if (line.length < 3 || line.length > 90) {
+          return false;
+        }
+
+        if (ignored.test(line)) {
+          return false;
+        }
+
+        const letters =
+          (line.match(/[A-Za-z]/g) || []).length;
+
+        const ratio = letters / Math.max(1, line.length);
+
+        if (ratio < 0.48) return false;
+
+        if (/^\d[\d\s().+-]{5,}$/.test(line)) {
+          return false;
+        }
+
+        const key = line.toLowerCase();
+
+        if (seen.has(key)) return false;
+
+        seen.add(key);
+
+        return true;
+      });
+  }
+
+  function scoreNameLine(line) {
+    let score = 0;
+
+    const words = line.split(/\s+/);
+
+    if (words.length >= 2 && words.length <= 7) {
+      score += 3;
+    }
+
+    if (line.length >= 5 && line.length <= 48) {
+      score += 2;
+    }
+
+    if (/\b(5\s?%|10\s?%|2\s?%|mg|ml|tablets?|capsules?|cream|solution|spray|shampoo|lotion|toothpaste|soap|powder|oil|serum)\b/i.test(line)) {
+      score += 4;
+    }
+
+    if (/\b(kirkland|signature|cetaphil|nivea|dove|rexona|samsung|detol|colgate|paracetamol|minoxidil)\b/i.test(line)) {
+      score += 5;
+    }
+
+    if (/\b(inc|llc|ltd|corp|corporation|address|street|drive|road|usa|uk|nigeria)\b/i.test(line)) {
+      score -= 5;
+    }
+
+    if (/\d{5,}/.test(line)) {
+      score -= 3;
+    }
+
+    if (/\b(one|twice|daily|times a day|scalp|directions)\b/i.test(line)) {
+      score -= 6;
+    }
+
+    return score;
+  }
+
+  function firstMatch(lines, regex) {
+    for (const line of lines) {
+      const match = line.match(regex);
+
+      if (match && match[1]) {
+        return match[1].trim().slice(0, 90);
+      }
+    }
+
+    return "";
+  }
+
+  function identifyLabel(text) {
+    const lines = cleanOCRLines(text);
+
+    const ranked = lines
+      .map(line => ({
+        line,
+        score: scoreNameLine(line)
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    const productLine =
+      ranked.find(item => item.score >= 5)?.line || "";
+
+    const brandLine = lines.find(line =>
+      /\b(kirkland|signature|cetaphil|nivea|dove|rexona|samsung|detol|colgate)\b/i.test(line)
+    ) || "";
+
+    const strength = firstMatch(
+      lines,
+      /\b(\d+(?:\.\d+)?\s?%|\d+\s?(?:mg|mcg|g|ml))\b/i
+    );
+
+    const batch = firstMatch(
+      lines,
+      /\b(?:lot|batch)\s*(?:no\.?|number|#|:)?\s*([A-Z0-9-]{4,})\b/i
+    );
+
+    const expiry = firstMatch(
+      lines,
+      /\b(?:exp(?:iry|iration)?|use by)\s*[:#-]?\s*((?:0?[1-9]|1[0-2])[\/.-]\d{2,4}|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s?\d{2,4})\b/i
+    );
+
+    const manufacturer = firstMatch(
+      lines,
+      /\b(?:manufactured by|made by)\s*[:\-]?\s*(.{3,70})/i
+    );
+
+    const distributor = firstMatch(
+      lines,
+      /\b(?:distributed by|distributed for)\s*[:\-]?\s*(.{3,70})/i
+    );
+
+    const importer = firstMatch(
+      lines,
+      /\b(?:imported by)\s*[:\-]?\s*(.{3,70})/i
+    );
+
+    let category = "";
+
+    if (/\b(minoxidil|hair regrowth)\b/i.test(text)) {
+      category = "Hair care / treatment";
+    } else if (/\b(toothpaste|mouthwash)\b/i.test(text)) {
+      category = "Oral care";
+    } else if (/\b(shampoo|conditioner|hair oil)\b/i.test(text)) {
+      category = "Hair care";
+    } else if (/\b(cream|lotion|serum|skin)\b/i.test(text)) {
+      category = "Beauty / personal care";
+    } else if (/\b(tablet|capsule|medicine|solution)\b/i.test(text)) {
+      category = "Health product";
+    } else if (/\b(food|ingredients|nutrition facts)\b/i.test(text)) {
+      category = "Food";
+    }
+
+    return {
+      product: productLine,
+      brand: brandLine,
+      strength,
+      category,
+      manufacturer,
+      distributor,
+      importer,
+      batch,
+      expiry
+    };
+  }
+
+  function renderRecognizedResult(info, photoCount, rawText) {
+    const fields = [
+      ["Product name", info.product],
+      ["Brand", info.brand],
+      ["Strength / size", info.strength],
+      ["Product category", info.category],
+      ["Manufacturer", info.manufacturer],
+      ["Distributor", info.distributor],
+      ["Importer", info.importer],
+      ["Batch / lot number", info.batch],
+      ["Expiry date", info.expiry]
+    ];
+
+    const hasAny = fields.some(([, value]) => value);
+
+    scanResult.innerHTML = `
+      <h3>Product label analysis</h3>
+
+      <p>
+        Analysed ${photoCount} photo${photoCount === 1 ? "" : "s"}.
+        Review and correct the fields below.
+      </p>
+
+      <div class="tm4-fields">
+        ${fields.map(([label, value], index) => `
+          <label class="tm4-field">
+            <span>${label}</span>
+
+            <input
+              type="text"
+              data-field="${index}"
+              value="${escapeHTML(value)}"
+              placeholder="Not identified"
+            >
+          </label>
+        `).join("")}
+      </div>
+
+      <div class="verification-warning">
+        <strong>Authenticity not confirmed</strong>
+
+        <p>
+          These details were extracted from packaging photos.
+          OCR can misread text, and copied packaging can display
+          genuine-looking details. This is not proof that the item
+          is genuine or safe.
+        </p>
+      </div>
+
+      ${!hasAny ? `
+        <p>
+          TrueMark could not confidently identify product details.
+          Take clearer close-up photos of the front, back and
+          printed batch/expiry area.
+        </p>
+      ` : ""}
+
+      <details class="tm4-raw">
+        <summary>Show extracted text for troubleshooting</summary>
+        <pre>${escapeHTML(rawText.slice(0, 5000))}</pre>
+      </details>
+
+      <button
+        id="saveCorrections"
+        class="scan-again-button"
+        type="button"
+      >
+        Save corrected details
+      </button>
+
+      <button
+        id="scanAgain"
+        class="scan-again-button"
+        type="button"
+      >
+        Scan another product
+      </button>
+    `;
+
+    scanResult.hidden = false;
+
+    scannerStatus.textContent =
+      "Review the extracted details. No authenticity check has been performed.";
+
+    $("saveCorrections").addEventListener("click", () => {
+      const values = [
+        ...scanResult.querySelectorAll("[data-field]")
+      ].map(input => input.value.trim());
+
+      const name =
+        values[0] ||
+        values[1] ||
+        "Label scanned — name not identified";
+
+      saveScan("Label photos", name, "Multi-photo OCR");
+
+      showToast("Your corrected scan details were saved to history.");
+    });
+
+    addScanAgainButton(
+      () => labelImageInput.click(),
+      "Choose more photos"
+    );
+  }
+
+  async function handleLabelPhoto(event) {
+    const files = Array.from(event.target.files || [])
+      .filter(file => file.type.startsWith("image/"))
+      .slice(0, 4);
+
+    if (!files.length) {
+      showToast("Choose one or more product label photos.");
+      event.target.value = "";
+      return;
+    }
+
+    await stopCamera();
+
+    processingScan = true;
+
+    labelScanButton.disabled = true;
+    startCameraButton.disabled = true;
+
+    scanResult.hidden = false;
+
+    scanResult.innerHTML = `
+      <h3>Analysing ${files.length} product photo(s)...</h3>
+      <p>
+        Keep this page open. This may take a few minutes on a phone.
+      </p>
+    `;
+
+    let combinedText = "";
+
+    try {
+      if (typeof Tesseract === "undefined") {
+        throw new Error("Text-reading library did not load.");
+      }
+
+      for (let i = 0; i < files.length; i++) {
+        scannerStatus.textContent =
+          `Reading photo ${i + 1} of ${files.length}...`;
+
+        const enhanced = await makeEnhancedImage(files[i]);
+
+        const result = await Tesseract.recognize(
+          enhanced,
+          "eng",
+          {
+            logger: message => {
+              if (message.status === "recognizing text") {
+                scannerStatus.textContent =
+                  `Photo ${i + 1}/${files.length}: ${Math.round(message.progress * 100)}%`;
+              }
+            }
+          }
+        );
+
+        combinedText +=
+          `\n\n[PHOTO ${i + 1}]\n${result.data.text || ""}`;
+      }
+
+      const info = identifyLabel(combinedText);
+
+      renderRecognizedResult(
+        info,
+        files.length,
+        combinedText.trim()
+      );
+
+      showToast("Label analysis finished. Please review the fields.");
+
+    } catch (error) {
+      console.error("Label analysis error:", error);
+
+      scanResult.innerHTML = `
+        <h3>Could not analyse these photos</h3>
+
+        <p>${escapeHTML(error.message || "The text-reading service failed.")}</p>
+
+        <p>
+          Try fewer, clearer photos with good lighting.
+        </p>
+
+        <button
+          id="scanAgain"
+          class="scan-again-button"
+          type="button"
+        >
+          Choose photos again
+        </button>
+      `;
+
+      scanResult.hidden = false;
+
+      scannerStatus.textContent = "Label analysis failed.";
+
+      addScanAgainButton(
+        () => labelImageInput.click(),
+        "Choose photos again"
+      );
+
+    } finally {
+      labelScanButton.disabled = false;
+      startCameraButton.disabled = false;
+      labelImageInput.value = "";
+      processingScan = false;
+    }
+  }
+
+  async function resetScanner() {
+    await stopCamera();
+
+    processingScan = false;
+
+    scanResult.hidden = true;
+    scanResult.innerHTML = "";
+
+    startCameraButton.hidden = false;
+    startCameraButton.disabled = false;
+    startCameraButton.textContent = "Scan barcode";
+
+    scannerStatus.textContent =
+      "Choose a scanning method to begin.";
+  }
+
+  async function closeScannerModal() {
+    if (startingCamera) {
+      showToast("Please wait for the camera to finish starting.");
+      return;
+    }
+
+    await stopCamera();
+
+    processingScan = false;
+
+    scannerModal.classList.remove("open");
+    scannerModal.setAttribute("aria-hidden", "true");
+  }
+
+  if (scanButton) {
+    scanButton.addEventListener("click", openScanner);
+  }
+
+  if (navScan) {
+    navScan.addEventListener("click", openScanner);
+  }
+
+  if (startCameraButton) {
+    startCameraButton.addEventListener("click", startCamera);
+  }
+
+  if (labelScanButton) {
+    labelScanButton.addEventListener("click", () => {
+      if (!startingCamera && !processingScan) {
+        labelImageInput.click();
+      }
+    });
+  }
+
+  if (labelImageInput) {
+    labelImageInput.addEventListener("change", handleLabelPhoto);
+  }
+
+  if (closeScanner) {
+    closeScanner.addEventListener("click", closeScannerModal);
+  }
+
+  if (scannerModal) {
+    scannerModal.addEventListener("click", event => {
+      if (event.target === scannerModal) {
+        closeScannerModal();
+      }
+    });
+  }
+
+  document.querySelectorAll(".category-card").forEach(card => {
+    card.addEventListener("click", () => {
+      document.querySelectorAll(".category-card").forEach(item => {
+        item.classList.remove("selected");
+      });
+
+      card.classList.add("selected");
+
+      showToast(`${card.dataset.category} selected.`);
+    });
+  });
+
+  const searchForm = $("searchForm");
+
+  if (searchForm) {
+    searchForm.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const query = $("productSearch").value.trim();
+
+      if (!query) {
+        return showToast("Enter a product name or barcode.");
+      }
+
+      showToast(
+        "Product search will be connected in a later stage."
+      );
+    });
+  }
+
+  document.querySelectorAll(".nav-item[data-target]").forEach(button => {
+    button.addEventListener("click", () => {
+      const target = $(button.dataset.target);
+
+      if (target) {
+        target.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+      }
+
+      document.querySelectorAll(".nav-item").forEach(item => {
+        item.classList.remove("active");
+      });
+
+      button.classList.add("active");
+    });
+  });
+
+  const viewHistory = $("viewHistory");
+
+  if (viewHistory) {
+    viewHistory.addEventListener("click", () => {
+      const section = $("history");
+
+      if (section) {
+        section.scrollIntoView({ behavior: "smooth" });
+      }
+    });
+  }
+
+  displayHistory();
 });
