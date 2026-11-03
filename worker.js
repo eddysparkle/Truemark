@@ -1099,6 +1099,14 @@ async function handleRequest(request, env) {
     return searchProductsRoute(url, env);
   }
 
+if (path.startsWith('/products/barcode/') && method === 'GET') {
+  const barcode = decodeURIComponent(
+    path.slice('/products/barcode/'.length)
+  );
+  return jsonResponse(await verifyBarcode(barcode, env));
+}
+
+  
   const productMatch = path.match(/^\/products\/([^/]+)$/);
   if (productMatch && method === 'GET') {
     return productDetailsRoute(decodeURIComponent(productMatch[1]), env);
