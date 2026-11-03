@@ -729,3 +729,437 @@ async function recognizeProduct(body, env) {
     }, 502);
   }
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* Nigerian regulator integrations                                            */
+/* -------------------------------------------------------------------------- */
+
+async function configuredRegulatorCheck(body, env, config) {
+  const registrationNumber = clean(
+    body.registration_number || body.nafdac_number || body.son_number || body.number,
+    120
+  );
+
+  if (!registrationNumber) {
+    return makeResult(
+      'needs_check',
+      'Registration number required',
+      'Enter the registration or certificate number shown on the product.'
+    );
+  }
+
+  if (!env[config.urlVariable] || !env[config.keyVariable]) {
+    return makeResult(
+      'needs_check',
+      `${config.name} live connection not configured`,
+      `TrueMark does not currently have an authorised ${config.name} API connection. Check the number directly with the regulator. A number printed on packaging is not proof of registration.`,
+      [sourceInfo(config.name, config.officialUrl, 'official_regulator')],
+      { registration_number: registrationNumber, integration: 'not_configured' }
+    );
+  }
+
+  try {
+    const data = await fetchJson(env[config.urlVariable], {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env[config.keyVariable]}`
+      },
+      body: JSON.stringify({ registration_number: registrationNumber })
+    }, 10000);
+
+    const explicitlyValid = data.valid === true || data.status === 'valid';
+    const explicitlyInvalid = data.valid === false || data.status === 'invalid';
+    const status = explicitlyValid ? 'record_found' : explicitlyInvalid ? 'official_invalid' : 'needs_check';
+
+    return makeResult(
+      status,
+      explicitlyValid ? 'Official record response found' : 'Official response needs review',
+      clean(data.message || 'Review the returned official-source record and its scope.', 500),
+      [sourceInfo(config.name, env[config.urlVariable], 'configured_official_api')],
+      { registration_number: registrationNumber, record: data }
+    );
+  } catch (error) {
+    return makeResult(
+      'source_unavailable',
+      `${config.name} source unavailable`,
+      'The configured regulator service did not respond. Try again later.',
+      [sourceInfo(config.name, config.officialUrl, 'official_regulator')],
+      { detail: errorMessage(error) }
+    );
+  }
+}
+
+async function verifyNAFDAC(body, env) {
+  return configuredRegulatorCheck(body, env, {
+    name: 'NAFDAC',
+    urlVariable: 'NAFDAC_API_URL',
+    keyVariable: 'NAFDAC_API_KEY',
+    officialUrl: 'https://nafdac.gov.ng/'
+  });
+}
+
+async function verifySON(body, env) {
+  return configuredRegulatorCheck(body, env, {
+    name: 'SON',
+    urlVariable: 'SON_API_URL',
+    keyVariable: 'SON_API_KEY',
+    officialUrl: 'https://son.gov.ng/'
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* United States FDA openFDA connectors                                       */
+/* -------------------------------------------------------------------------- */
+
+function fdaApiKeyQuery(env) {
+  return env.FDA_API_KEY ? `&api_key=${encodeURIComponent(env.FDA_API_KEY)}` : '';
+}
+
+async function lookupFdaNdc(value, env) {
+  const query = clean(value, 100);
+  if (!query) return [];
+
+  const url = `https://api.fda.gov/drug/ndc.json?search=product_ndc:%22${encodeURIComponent(query)}%22&limit=10${fdaApiKeyQuery(env)}`;
+
+  try {
+    const data = await fetchJson(url, {}, 9000);
+    return (data.results || []).map((item) => ({
+      brand_name: item.brand_name || '',
+      generic_name: item.generic_name || '',
+      labeler_name: item.labeler_name || '',
+      product_ndc: item.product_ndc || '',
+      marketing_status: item.marketing_status || '',
+      listing_expiration_date: item.listing_expiration_date || ''
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function lookupFdaRecalls(env, productTerm = '') {
+  const term = clean(productTerm, 100);
+  const search = term
+    ? `&search=product_description:%22${encodeURIComponent(term)}%22`
+    : '';
+  const url = `https://api.fda.gov/drug/enforcement.json?limit=20${search}${fdaApiKeyQuery(env)}`;
+
+  try {
+    const data = await fetchJson(url, {}, 9000);
+    return (data.results || []).map((item) => ({
+      source: 'US FDA',
+      product_name: item.product_description || '',
+      reason: item.reason_for_recall || '',
+      classification: item.classification || '',
+      status: item.status || '',
+      recall_date: item.recall_initiation_date || '',
+      recalling_firm: item.recalling_firm || '',
+      source_url: 'https://open.fda.gov/apis/drug/enforcement/'
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function verifyFdaNdc(body, env) {
+  const ndc = clean(body.ndc || body.product_ndc || body.number || body.product_name || body.name, 100);
+  if (!ndc) {
+    return makeResult('needs_check', 'NDC required', 'Enter a US National Drug Code to search.');
+  }
+
+  const records = await lookupFdaNdc(ndc, env);
+  const found = records.length > 0;
+
+  return makeResult(
+    found ? 'record_found' : 'needs_check',
+    found ? 'FDA NDC listing found' : 'No matching NDC listing returned',
+    found
+      ? 'The FDA NDC database returned a listing. An NDC listing alone does not mean that FDA has approved the drug.'
+      : 'No matching NDC listing was returned. This does not by itself establish that the product is counterfeit.',
+    [sourceInfo('US FDA openFDA NDC', 'https://open.fda.gov/apis/drug/ndc/', 'official_regulator')],
+    { records }
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* General verification and history                                          */
+/* -------------------------------------------------------------------------- */
+
+async function verifyGeneral(body, env) {
+  const barcode = clean(body.barcode || body.code, 80);
+  if (barcode) return verifyBarcode(barcode, env);
+
+  const category = clean(body.category || body.product_category, 120);
+  const categoryLower = category.toLowerCase();
+  const nafdacNumber = body.nafdac_number || body.registration_number;
+
+  if (/medicine|drug|pharma|medical/.test(categoryLower) && nafdacNumber) {
+    return verifyNAFDAC(body, env);
+  }
+
+  if (/food|drink|beverage|cosmetic|beauty|personal care/.test(categoryLower) && nafdacNumber) {
+    return verifyNAFDAC(body, env);
+  }
+
+  const name = clean(body.product_name || body.name, 240);
+  if (!name) {
+    return makeResult(
+      'needs_check',
+      'Product information required',
+      'Provide a product name, barcode or registration number.'
+    );
+  }
+
+  const db = requireDatabase(env);
+  const matches = await searchProducts(db, name, 10);
+
+  if (!matches.length) {
+    const result = makeResult(
+      'not_found',
+      'No matching product record',
+      'TrueMark has no matching product in its current database. This is not proof that the product is fake.'
+    );
+
+    await saveVerification(db, {
+      product_name: name,
+      category,
+      status: result.status,
+      sources: []
+    });
+
+    return result;
+  }
+
+  const sources = [];
+  for (const match of matches) {
+    const productSources = await getProductSources(db, match.id);
+    sources.push(...productSources);
+  }
+
+  const result = makeResult(
+    'catalogue_match',
+    'Possible product matches found',
+    'These database records may match the supplied product. Compare the brand, packaging, manufacturer and identifiers carefully.',
+    sources,
+    { products: matches }
+  );
+
+  await saveVerification(db, {
+    product_name: name,
+    category,
+    status: result.status,
+    sources
+  });
+
+  return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Recall information                                                         */
+/* -------------------------------------------------------------------------- */
+
+async function recallsRoute(url, env) {
+  const query = clean(url.searchParams.get('q'), 100);
+  const recalls = await lookupFdaRecalls(env, query);
+
+  return jsonResponse({
+    success: true,
+    source: 'US FDA openFDA',
+    recalls,
+    count: recalls.length,
+    message: 'This endpoint currently checks US FDA drug enforcement recalls, not every product recall worldwide.'
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Source registry                                                            */
+/* -------------------------------------------------------------------------- */
+
+async function sourcesRoute(env) {
+  const db = requireDatabase(env);
+
+  const result = await db.prepare(`
+    SELECT source_key, source_name, source_type, source_url,
+           last_status, last_checked_at, last_error
+    FROM source_registry
+    ORDER BY source_name
+  `).all();
+
+  return jsonResponse({
+    success: true,
+    sources: result.results || [],
+    additional_sources: OFFICIAL_SOURCES
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* API request routing                                                        */
+/* -------------------------------------------------------------------------- */
+
+async function handleRequest(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/\/+$/, '') || '/';
+  const method = request.method.toUpperCase();
+
+  if (method === 'OPTIONS') {
+    return new Response(null, { status: 204 });
+  }
+
+  if (path === '/' && method === 'GET') {
+    return jsonResponse({
+      success: true,
+      service: 'TrueMark API',
+      version: VERSION,
+      message: 'Product identification and safety-information API',
+      endpoints: [
+        'GET /health',
+        'GET /categories',
+        'GET /sources',
+        'POST /recognize',
+        'POST /verify',
+        'POST /verify/nafdac',
+        'POST /verify/son',
+        'POST /verify/fda-ndc',
+        'POST /verify/barcode',
+        'GET /recalls',
+        'GET /products/search?q=product',
+        'GET /products/:id',
+        'GET /admin/sync/status'
+      ]
+    });
+  }
+
+  if (path === '/health' && method === 'GET') {
+    let database = 'not_configured';
+
+    if (env.DB) {
+      try {
+        await env.DB.prepare('SELECT 1 AS ok').first();
+        database = 'connected';
+      } catch {
+        database = 'error';
+      }
+    }
+
+    return jsonResponse({
+      success: database === 'connected',
+      service: 'TrueMark API',
+      version: VERSION,
+      database,
+      ai: env.AI ? 'configured' : 'not_configured',
+      timestamp: isoNow()
+    });
+  }
+
+  if (path === '/categories' && method === 'GET') {
+    return jsonResponse({ success: true, categories: CATEGORIES });
+  }
+
+  if (path === '/sources' && method === 'GET') {
+    return sourcesRoute(env);
+  }
+
+  if (path === '/recognize' && method === 'POST') {
+    const body = await readJson(request, MAX_IMAGE_CHARS + 10000);
+    return recognizeProduct(body, env);
+  }
+
+  if (path === '/verify' && method === 'POST') {
+    const body = await readJson(request);
+    const result = await verifyGeneral(body, env);
+    return jsonResponse(result);
+  }
+
+  if (path === '/verify/nafdac' && method === 'POST') {
+    const body = await readJson(request);
+    return jsonResponse(await verifyNAFDAC(body, env));
+  }
+
+  if (path === '/verify/son' && method === 'POST') {
+    const body = await readJson(request);
+    return jsonResponse(await verifySON(body, env));
+  }
+
+  if (path === '/verify/fda-ndc' && method === 'POST') {
+    const body = await readJson(request);
+    return jsonResponse(await verifyFdaNdc(body, env));
+  }
+
+  if (path === '/verify/barcode' && method === 'POST') {
+    const body = await readJson(request);
+    return jsonResponse(await verifyBarcode(body.barcode || body.code, env));
+  }
+
+  if (path === '/recalls' && method === 'GET') {
+    return recallsRoute(url, env);
+  }
+
+  if (path === '/products/search' && method === 'GET') {
+    return searchProductsRoute(url, env);
+  }
+
+  const productMatch = path.match(/^\/products\/([^/]+)$/);
+  if (productMatch && method === 'GET') {
+    return productDetailsRoute(decodeURIComponent(productMatch[1]), env);
+  }
+
+  if (path === '/admin/sync/status' && method === 'GET') {
+    return jsonResponse({
+      success: true,
+      message: 'Automated regulator synchronisation is not configured.',
+      sources: OFFICIAL_SOURCES
+    });
+  }
+
+  return jsonResponse({
+    success: false,
+    error: 'Endpoint not found.',
+    path
+  }, 404);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Worker entry point                                                         */
+/* -------------------------------------------------------------------------- */
+
+export default {
+  async fetch(request, env) {
+    const origin = request.headers.get('Origin');
+    const allowedOrigins = getAllowedOrigins(env);
+
+    if (origin && !allowedOrigins.includes(origin)) {
+      return jsonResponse({
+        success: false,
+        error: 'Origin not authorised.'
+      }, 403, corsHeaders(origin, env));
+    }
+
+    const headers = corsHeaders(origin, env);
+
+    try {
+      const response = await handleRequest(request, env);
+      const mergedHeaders = new Headers(response.headers);
+
+      for (const [key, value] of Object.entries(headers)) {
+        mergedHeaders.set(key, value);
+      }
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: mergedHeaders
+      });
+    } catch (error) {
+      const status = /valid JSON|too large|Provide a JPEG/i.test(errorMessage(error)) ? 400 : 500;
+
+      return jsonResponse({
+        success: false,
+        error: errorMessage(error),
+        service: 'TrueMark API',
+        version: VERSION
+      }, status, headers);
+    }
+  }
+};
+
