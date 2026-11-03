@@ -721,7 +721,12 @@ async function recognizeProduct(body, env) {
       product,
       disclaimer: 'AI may misread labels. Confirm every extracted detail against the physical packaging. Recognition is not authenticity verification.'
     });
-  } catch (error) {
+    } catch (error) {
+    console.error(
+      'TrueMark AI recognition failed:',
+      errorMessage(error)
+    );
+
     return jsonResponse({
       success: false,
       error: 'Image recognition is temporarily unavailable.',
