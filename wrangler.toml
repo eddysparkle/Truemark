@@ -1,0 +1,14 @@
+name = "truemark-ai"
+main = "worker.js"
+compatibility_date = "2026-10-30"
+
+[ai]
+binding = "AI"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "truemark-db"
+database_id = "aaec73be-ff31-4725-a7db-b21e6ee821a5"
+
+[vars]
+ALLOWED_ORIGINS = "https://eddysparkle.github.io"
