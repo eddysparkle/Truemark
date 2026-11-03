@@ -13,10 +13,9 @@ workflow_dispatch:
 jobs:
 deploy:
 runs-on: ubuntu-latest
-
 steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+- name: Checkout repository
+uses: actions/checkout@v4
 
   - name: Deploy TrueMark to Cloudflare
     uses: cloudflare/wrangler-action@v3
