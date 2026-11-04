@@ -666,7 +666,6 @@ function extractJsonObject(value) {
 }
 
 async function recognizeProduct(body, env) {
-async function recognizeProduct(body, env) {
   if (!env.AI) {
     return jsonResponse({
       success: false,
