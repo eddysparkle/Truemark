@@ -54,7 +54,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 3000);
   }
 
-  // Corrected HTML escaping function
   function escapeHTML(value) {
     return String(value ?? "").replace(/[&<>"']/g, ch => ({
       "&": "&amp;",
@@ -560,7 +559,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function recognizeWithAI(file, index, total) {
 
-    // Corrected progress message
     if (scannerStatus) {
       scannerStatus.textContent =
         `Preparing photo ${index} of ${total}...`;
@@ -586,16 +584,27 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       data = await response.json();
     } catch {
-      throw new Error("The AI server returned an invalid response.");
+      throw new Error(
+        "The AI server returned an invalid response."
+      );
     }
 
     if (!response.ok || !data.success) {
-  throw new Error(
-    data.detail ||
-    data.error ||
-    `AI request failed (${response.status}).`
-  );
-}
+      throw new Error(
+        data.detail ||
+        data.error ||
+        `AI request failed (${response.status}).`
+      );
+    }
+
+    if (!data.product || typeof data.product !== "object") {
+      throw new Error(
+        "The AI did not return product information."
+      );
+    }
+
+    return data.product;
+  }
 
   /* =========================
      COMBINE MULTIPLE RESULTS
