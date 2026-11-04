@@ -686,24 +686,21 @@ async function recognizeProduct(body, env) {
 
   const prompt = [
     'You are assisting with consumer product identification.',
-    'Carefully inspect the supplied product image.',
-    'Extract only information that is visibly readable.',
+    'Inspect the supplied product image carefully.',
+    'Extract only details that are visibly readable.',
     'Return one JSON object with these keys:',
     'product_name, brand, category, barcode, nafdac_number, batch_number, expiry_date, confidence, notes.',
     'Use empty strings for unreadable fields.',
-    'Never invent or guess product details, numbers or dates.',
-    'Do not decide whether the product is genuine, safe, approved or counterfeit.',
+    'Never invent or guess numbers, dates or product details.',
+    'Do not decide whether the item is genuine, safe, approved or counterfeit.',
     'This is identification assistance only.',
     'Return valid JSON without Markdown formatting.'
   ].join(' ');
 
   try {
     const response = await env.AI.run(AI_MODEL, {
-      messages: [{
-        role: 'user',
-        content: prompt
-      }],
-      image: body.image,
+      prompt: prompt,
+      image: Array.from(imageBytes),
       max_tokens: 600
     });
 
