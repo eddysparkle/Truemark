@@ -590,17 +590,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (!response.ok || !data.success) {
-      throw new Error(
-        data.error || `AI request failed (${response.status}).`
-      );
-    }
-
-    if (!data.product || typeof data.product !== "object") {
-      throw new Error("The AI did not return product information.");
-    }
-
-    return data.product;
-  }
+  throw new Error(
+    data.detail ||
+    data.error ||
+    `AI request failed (${response.status}).`
+  );
+}
 
   /* =========================
      COMBINE MULTIPLE RESULTS
