@@ -1065,6 +1065,40 @@ async function handleRequest(request, env) {
     return sourcesRoute(env);
   }
 
+  // TEMPORARY: Accept Meta licence for TrueMark's vision model
+  if (path === '/admin/accept-meta-license' && method === 'GET') {
+    const key = url.searchParams.get('key');
+
+    if (key !== 'TrueMarkMetaAgree2026_X7p9K2mL') {
+      return jsonResponse({
+        success: false,
+        error: 'Unauthorized'
+      }, 401);
+    }
+
+    try {
+      const result = await env.AI.run(
+        '@cf/meta/llama-3.2-11b-vision-instruct',
+        { prompt: 'agree' }
+      );
+
+      return jsonResponse({
+        success: true,
+        message: 'Meta licence acceptance request completed.',
+        result
+      });
+    } catch (error) {
+      console.error('Meta licence acceptance failed:', errorMessage(error));
+
+      return jsonResponse({
+        success: false,
+        error: errorMessage(error)
+      }, 502);
+    }
+  }
+
+
+      
   if (path === '/recognize' && method === 'POST') {
     const body = await readJson(request, MAX_IMAGE_CHARS + 10000);
     return recognizeProduct(body, env);
