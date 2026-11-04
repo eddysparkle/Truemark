@@ -666,6 +666,7 @@ function extractJsonObject(value) {
 }
 
 async function recognizeProduct(body, env) {
+async function recognizeProduct(body, env) {
   if (!env.AI) {
     return jsonResponse({
       success: false,
@@ -674,35 +675,41 @@ async function recognizeProduct(body, env) {
   }
 
   let imageBytes;
+
   try {
     imageBytes = decodeImageDataUrl(body.image);
   } catch (error) {
-    return jsonResponse({ success: false, error: errorMessage(error) }, 400);
+    return jsonResponse({
+      success: false,
+      error: errorMessage(error)
+    }, 400);
   }
 
   const prompt = [
     'You are assisting with consumer product identification.',
-    'Inspect the image and extract only details that are visibly readable.',
+    'Carefully inspect the supplied product image.',
+    'Extract only information that is visibly readable.',
     'Return one JSON object with these keys:',
     'product_name, brand, category, barcode, nafdac_number, batch_number, expiry_date, confidence, notes.',
-    'Use empty strings for unreadable fields. Do not invent or guess numbers.',
-    'Do not decide whether the item is genuine, safe, approved or counterfeit.',
-    'This is identification assistance only.'
+    'Use empty strings for unreadable fields.',
+    'Never invent or guess product details, numbers or dates.',
+    'Do not decide whether the product is genuine, safe, approved or counterfeit.',
+    'This is identification assistance only.',
+    'Return valid JSON without Markdown formatting.'
   ].join(' ');
 
   try {
     const response = await env.AI.run(AI_MODEL, {
       messages: [{
         role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image', image: Array.from(imageBytes) }
-        ]
+        content: prompt
       }],
+      image: body.image,
       max_tokens: 600
     });
 
     const raw = response.response || response.description || '';
+
     const product = extractJsonObject(raw) || {
       product_name: '',
       brand: '',
@@ -721,7 +728,8 @@ async function recognizeProduct(body, env) {
       product,
       disclaimer: 'AI may misread labels. Confirm every extracted detail against the physical packaging. Recognition is not authenticity verification.'
     });
-    } catch (error) {
+
+  } catch (error) {
     console.error(
       'TrueMark AI recognition failed:',
       errorMessage(error)
@@ -734,7 +742,6 @@ async function recognizeProduct(body, env) {
     }, 502);
   }
 }
-
 
 /* -------------------------------------------------------------------------- */
 /* Nigerian regulator integrations                                            */
