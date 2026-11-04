@@ -1,866 +1,1164 @@
 /* =========================================================
-   TRUEMARK 5.2 — AI PRODUCT RECOGNITION
-   Cloudflare Workers AI + TrueMark Worker Barcode Lookup
+TRUEMARK 5.1 — AI PRODUCT RECOGNITION
+Cloudflare Workers AI + Barcode Lookup
 
-   IMPORTANT:
-   Product recognition is NOT authenticity verification.
+IMPORTANT:
+Product recognition is NOT authenticity verification.
 ========================================================= */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const $ = id => document.getElementById(id);
-
-  const API_URL = "https://truemark-ai.edialeeghonghon.workers.dev/recognize";
-  const BARCODE_API_URL = "https://truemark-ai.edialeeghonghon.workers.dev/products/barcode/";
-  const HISTORY_KEY = "truemarkScanHistory";
-
-  const scanButton = $("scanButton");
-  const navScan = $("navScan");
-  const scannerModal = $("scannerModal");
-  const closeScanner = $("closeScanner");
-  const startCameraButton = $("startCamera");
-  const labelScanButton = $("labelScanButton");
-  const labelImageInput = $("labelImageInput");
-  const scannerStatus = $("scannerStatus");
-  const scanResult = $("scanResult");
-  const historyList = $("historyList");
-  const toast = $("toast");
-
-  let html5QrCode = null;
-  let cameraRunning = false;
-  let startingCamera = false;
-  let processingScan = false;
-
-  if (labelImageInput) {
-    labelImageInput.multiple = true;
-    labelImageInput.accept = "image/*";
-  }
-
-  /* =========================
-     GENERAL HELPERS
-  ========================= */
-
-  function showToast(message) {
-    if (!toast) return;
-    toast.textContent = message;
-    toast.classList.add("show");
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove("show"), 3000);
-  }
-
-  function escapeHTML(value) {
-    return String(value ?? "").replace(/[&<>"']/g, ch => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    })[ch]);
-  }
-
-  function getHistory() {
-    try {
-      const data = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-      return Array.isArray(data) ? data : [];
-    } catch {
-      return [];
-    }
-  }
-
-  function saveScan(identifier, name, method) {
-    try {
-      const history = getHistory();
-      history.unshift({
-        barcode: identifier || "No barcode",
-        name: name || "Product scan",
-        method: method || "Scanned",
-        date: new Date().toLocaleString()
-      });
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 30)));
-      displayHistory();
-    } catch (error) {
-      console.warn("History error:", error);
-    }
-  }
-
-  function displayHistory() {
-    if (!historyList) return;
-    const history = getHistory();
-
-    if (!history.length) {
-      historyList.innerHTML = `
-        <div class="empty-state">
-          <span class="empty-icon">▦</span>
-          <h3>No scans yet</h3>
-          <p>Products you scan will appear here.</p>
-        </div>`;
-      return;
-    }
-
-    historyList.innerHTML = history.map(item => `
-      <div class="history-item">
-        <div>
-          <strong>${escapeHTML(item.name)}</strong>
-          <small>${escapeHTML(item.method || "Scanned")} · ${escapeHTML(item.barcode)}</small>
-          <small>${escapeHTML(item.date)}</small>
-        </div>
-        <span class="history-badge">Scanned</span>
-      </div>
-    `).join("");
-  }
-
-  /* =========================
-     SCANNER MODAL
-  ========================= */
-
-  function openScanner() {
-    if (!scannerModal) {
-      console.error("TrueMark: scannerModal element not found.");
-      return;
-    }
-
-    processingScan = false;
-
-    if (scanResult) {
-      scanResult.hidden = true;
-      scanResult.innerHTML = "";
-    }
-
-    if (startCameraButton) {
-      startCameraButton.hidden = false;
-      startCameraButton.disabled = false;
-      startCameraButton.textContent = "Scan barcode";
-    }
-
-    if (scannerStatus) scannerStatus.textContent = "Choose a scanning method to begin.";
-
-    scannerModal.classList.add("open");
-    scannerModal.setAttribute("aria-hidden", "false");
-  }
-
-  async function startCamera() {
-    if (cameraRunning || startingCamera || processingScan) return;
-
-    if (typeof Html5Qrcode === "undefined" ||
-        typeof Html5QrcodeSupportedFormats === "undefined") {
-      if (scannerStatus) scannerStatus.textContent = "Barcode scanner did not load. Reload the page.";
-      return;
-    }
-
-    if (!startCameraButton || !scannerStatus || !$("reader")) {
-      showToast("Scanner elements are missing from the page.");
-      return;
-    }
-
-    startingCamera = true;
-    startCameraButton.disabled = true;
-    startCameraButton.textContent = "Starting camera...";
-    scannerStatus.textContent = "Requesting camera permission...";
-
-    try {
-      $("reader").innerHTML = "";
-      html5QrCode = new Html5Qrcode("reader");
-
-      const formats = [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.ITF,
-        Html5QrcodeSupportedFormats.QR_CODE
-      ];
-
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 150 }, formatsToSupport: formats },
-        onScanSuccess,
-        () => {}
-      );
-
-      cameraRunning = true;
-      startCameraButton.hidden = true;
-      scannerStatus.textContent = "Camera active. Position a barcode inside the frame.";
-    } catch (error) {
-      console.error("Camera error:", error);
-      scannerStatus.textContent = "Unable to access camera. Check browser permissions.";
-      startCameraButton.hidden = false;
-      startCameraButton.textContent = "Try camera again";
-    } finally {
-      startingCamera = false;
-      startCameraButton.disabled = false;
-    }
-  }
-
-  async function stopCamera() {
-    if (html5QrCode && cameraRunning) {
-      try {
-        await html5QrCode.stop();
-      } catch (error) {
-        console.warn("Camera stop:", error);
-      }
-    }
-
-    cameraRunning = false;
-    html5QrCode = null;
-    if ($("reader")) $("reader").innerHTML = "";
-  }
-
-  async function onScanSuccess(decodedText) {
-    if (!cameraRunning || processingScan) return;
-
-    processingScan = true;
-    cameraRunning = false;
-
-    if (scannerStatus) {
-      scannerStatus.textContent = "Barcode detected. Looking up product information...";
-    }
-
-    try {
-      if (html5QrCode && html5QrCode.isScanning) await html5QrCode.stop();
-    } catch (error) {
-      console.warn(error);
-    }
-
-    html5QrCode = null;
-    await lookupProduct(decodedText);
-  }
-
-  /* =========================
-     BARCODE LOOKUP — TRUEMARK WORKER
-     Confirmed route: GET /products/barcode/{barcode}
-  ========================= */
-
-  async function lookupProduct(barcode) {
-    const cleanBarcode = String(barcode || "").trim();
-
-    if (!cleanBarcode) {
-      showProductUnavailable("", "No barcode was detected. Please scan again.");
-      return;
-    }
-
-    const url = `${BARCODE_API_URL}${encodeURIComponent(cleanBarcode)}`;
-
-    try {
-      if (scannerStatus) {
-        scannerStatus.textContent = "Checking TrueMark product databases...";
-      }
-
-      const response = await fetch(url, {
-        method: "GET",
-        headers: { "Accept": "application/json" },
-        cache: "no-store"
-      });
-
-      let data;
-      try {
-        data = await response.json();
-      } catch {
-        throw new Error("The TrueMark server returned an invalid response.");
-      }
-
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
-          data.error ||
-          `Product lookup failed (${response.status}).`
-        );
-      }
-
-      const sources = Array.isArray(data.sources) ? data.sources : [];
-
-      if (data.status === "not_found" || !data.product) {
-        showProductNotFound(cleanBarcode, data.message, sources);
-        saveScan(cleanBarcode, "No catalogue match found", "TrueMark Worker");
-        return;
-      }
-
-      const product = data.product;
-
-      displayProduct({
-        product_name: product.name || product.product_name,
-        brands: product.brand,
-        categories: product.category,
-        quantity: product.quantity || product.strength_or_size,
-        countries: product.country_of_origin,
-        manufacturing_places: product.manufacturer,
-        image_url: product.image_url
-      }, cleanBarcode, sources);
-
-      saveScan(
-        cleanBarcode,
-        product.name || product.product_name || "Product identified",
-        "TrueMark Worker"
-      );
-
-      showToast("Product information retrieved.");
-    } catch (error) {
-      console.error("TrueMark barcode lookup:", error);
-      showProductUnavailable(cleanBarcode, error.message);
-
-      saveScan(
-        cleanBarcode,
-        "Barcode lookup encountered an error",
-        "TrueMark Worker"
-      );
-    }
-  }
-
-  function addScanAgainButton(action = resetScanner, label = "Scan another product") {
-    const button = $("scanAgain");
-    if (button) {
-      button.addEventListener("click", action);
-      button.textContent = label;
-    }
-  }
-
-  function showProductNotFound(barcode, message, sources = []) {
-    if (!scanResult) return;
-
-    scanResult.innerHTML = `
-      <h3>No catalogue match found</h3>
-      <p>Barcode: <strong>${escapeHTML(barcode)}</strong></p>
-
-      <div class="verification-warning">
-        <strong>Product information not found</strong>
-        <p>${escapeHTML(message || "TrueMark could not find this barcode in its connected public catalogues.")}</p>
-        <p>This does not mean the product is fake, unsafe or unregistered.</p>
-      </div>
-
-      ${sources.length ? `
-        <div class="product-details">
-          <strong>Sources checked</strong>
-          ${sources.map(source => `
-            <p>${escapeHTML(source.name || "Public catalogue")}</p>
-          `).join("")}
-        </div>
-      ` : ""}
-
-      <button id="scanAgain" class="scan-again-button" type="button">
-        Scan another product
-      </button>
-    `;
-
-    scanResult.hidden = false;
-
-    if (scannerStatus) {
-      scannerStatus.textContent =
-        "No catalogue match found. Product authenticity has not been determined.";
-    }
-
-    addScanAgainButton();
-  }
-
-  function showProductUnavailable(barcode, reason) {
-    if (!scanResult) return;
-
-    scanResult.innerHTML = `
-      <h3>TrueMark lookup could not be completed</h3>
-      ${barcode ? `<p>Barcode: <strong>${escapeHTML(barcode)}</strong></p>` : ""}
-      <div class="verification-warning">
-        <strong>Temporary lookup or connection issue</strong>
-        <p>${escapeHTML(reason || "TrueMark could not retrieve product information right now.")}</p>
-        <p>This is a service issue, not evidence that the product is fake, unsafe or unregistered. No authenticity conclusion has been made.</p>
-      </div>
-      <button id="scanAgain" class="scan-again-button" type="button">
-        Try again
-      </button>
-    `;
-
-    scanResult.hidden = false;
-
-    if (scannerStatus) {
-      scannerStatus.textContent = "TrueMark could not complete the barcode lookup. No authenticity conclusion has been made.";
-    }
-
-    addScanAgainButton(() => lookupProduct(barcode), "Try again");
-  }
-
-  function displayProduct(product, barcode, sources = []) {
-    if (!scanResult) return;
-
-    const fields = [
-      ["Product", product.product_name],
-      ["Brand", product.brands],
-      ["Category", product.categories],
-      ["Quantity", product.quantity],
-      ["Countries listed", product.countries],
-      ["Manufacturing location", product.manufacturing_places],
-      ["Barcode", barcode]
-    ];
-
-    const image = product.image_url || "";
-
-    scanResult.innerHTML = `
-      <span class="result-check">✓</span>
-      <h3>Product identified</h3>
-
-      ${image ? `
-        <img
-          src="${escapeHTML(image)}"
-          alt="Product reference"
-          style="width:140px;max-height:150px;object-fit:contain;margin:15px auto;display:block;"
-        >
-      ` : ""}
-
-      <div class="product-details">
-        ${fields.map(([label, value]) => `
-          <p><strong>${label}:</strong> ${escapeHTML(value || "Not provided")}</p>
-        `).join("")}
-      </div>
-
-      <div class="verification-warning">
-        <strong>Authenticity not confirmed</strong>
-        <p>
-          A public catalogue match identifies a product record.
-          It does not prove that this physical item is genuine,
-          safe or regulator-approved.
-        </p>
-      </div>
-
-      <div class="result-note">
-        <strong>Information sources</strong>
-        ${sources.length ? sources.map(source => `
-          <p>${escapeHTML(source.name || "Public catalogue")}</p>
-        `).join("") : "<p>Source information unavailable.</p>"}
-      </div>
-
-      <button id="scanAgain" class="scan-again-button" type="button">
-        Scan another product
-      </button>
-    `;
-
-    scanResult.hidden = false;
-
-    if (scannerStatus) {
-      scannerStatus.textContent = "Product catalogue information retrieved.";
-    }
-
-    addScanAgainButton();
-  }
-
-  /* =========================
-     IMAGE PREPARATION
-  ========================= */
-
-  async function prepareImage(file) {
-    if (typeof createImageBitmap !== "function") {
-      throw new Error("Your browser cannot prepare this image. Try another browser.");
-    }
-
-    const bitmap = await createImageBitmap(file);
-    const maxSide = 1400;
-    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      bitmap.close();
-      throw new Error("Could not prepare the selected image.");
-    }
-
-    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close();
-
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(result => {
-        if (result) resolve(result);
-        else reject(new Error("Could not prepare image."));
-      }, "image/jpeg", 0.82);
-    });
-
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error("Could not read the selected image."));
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  /* =========================
-     CLOUDFLARE AI
-  ========================= */
-
-  async function recognizeWithAI(file, index, total) {
-    if (scannerStatus) {
-      scannerStatus.textContent = `Preparing photo ${index} of ${total}...`;
-    }
-
-    const image = await prepareImage(file);
-
-    if (scannerStatus) {
-      scannerStatus.textContent = `AI is analysing photo ${index} of ${total}...`;
-    }
-
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image })
-    });
-
-    let data;
-    try {
-      data = await response.json();
-    } catch {
-      throw new Error("The AI server returned an invalid response.");
-    }
-
-    if (!response.ok || !data.success) {
-      throw new Error(
-        data.detail ||
-        data.error ||
-        data.message ||
-        `AI request failed (${response.status}).`
-      );
-    }
-
-    if (!data.product || typeof data.product !== "object") {
-      throw new Error("The AI did not return product information.");
-    }
-
-    return data.product;
-  }
-
-  /* =========================
-     COMBINE MULTIPLE RESULTS
-  ========================= */
-
-  function combineResults(results) {
-    const combined = {
-      product_name: null,
-      brand: null,
-      category: null,
-      manufacturer: null,
-      distributor: null,
-      ingredients: [],
-      strength_or_size: null,
-      batch_number: null,
-      manufacturing_date: null,
-      expiry_date: null,
-      country_of_origin: null,
-      confidence: "low",
-      uncertain_fields: [],
-      additional_observations: [],
-      recognition_status: "needs_review",
-      authenticity_status: "not_verified"
-    };
-
-    const fields = [
-      "product_name", "brand", "category", "manufacturer", "distributor",
-      "strength_or_size", "batch_number", "manufacturing_date",
-      "expiry_date", "country_of_origin"
-    ];
-
-    results.forEach(product => {
-      fields.forEach(field => {
-        if (!combined[field] && product[field] && typeof product[field] === "string") {
-          combined[field] = product[field];
-        }
-      });
-
-      if (Array.isArray(product.ingredients)) combined.ingredients.push(...product.ingredients);
-      if (Array.isArray(product.uncertain_fields)) combined.uncertain_fields.push(...product.uncertain_fields);
-      if (Array.isArray(product.additional_observations)) combined.additional_observations.push(...product.additional_observations);
-
-      if (product.confidence === "high") {
-        combined.confidence = "high";
-      } else if (product.confidence === "medium" && combined.confidence !== "high") {
-        combined.confidence = "medium";
-      }
-    });
-
-    combined.ingredients = [...new Set(combined.ingredients.filter(Boolean))];
-    combined.uncertain_fields = [...new Set(combined.uncertain_fields.filter(Boolean))];
-    combined.additional_observations = [...new Set(combined.additional_observations.filter(Boolean))];
-
-    if (combined.product_name || combined.brand) combined.recognition_status = "identified";
-    combined.authenticity_status = "not_verified";
-
-    return combined;
-  }
-
-  /* =========================
-     DISPLAY AI RESULTS
-  ========================= */
-
-  function renderAIResult(product, photoCount, errors = []) {
-    if (!scanResult) return;
-
-    const ingredients = Array.isArray(product.ingredients) ? product.ingredients.join(", ") : "";
-
-    const fields = [
-      ["Product name", product.product_name],
-      ["Brand", product.brand],
-      ["Category", product.category],
-      ["Manufacturer", product.manufacturer],
-      ["Distributor", product.distributor],
-      ["Strength / size", product.strength_or_size],
-      ["Ingredients", ingredients],
-      ["Batch / lot number", product.batch_number],
-      ["Manufacturing date", product.manufacturing_date],
-      ["Expiry date", product.expiry_date],
-      ["Country of origin", product.country_of_origin]
-    ];
-
-    const hasInformation = fields.some(([, value]) => value);
-
-    scanResult.innerHTML = `
-      <h3>TrueMark AI recognition results</h3>
-      <p>Analysed ${photoCount} photo${photoCount === 1 ? "" : "s"}.</p>
-      <p><strong>AI confidence:</strong> ${escapeHTML(product.confidence || "Not available")}</p>
-
-      <div class="tm4-fields">
-        ${fields.map(([label, value], index) => `
-          <label class="tm4-field">
-            <span>${label}</span>
-            <input type="text" data-field="${index}" value="${escapeHTML(value || "")}" placeholder="Not identified">
-          </label>
-        `).join("")}
-      </div>
-
-      ${product.uncertain_fields?.length ? `
-        <div class="verification-warning">
-          <strong>Fields requiring review</strong>
-          <p>${escapeHTML(product.uncertain_fields.join(", "))}</p>
-        </div>
-      ` : ""}
-
-      ${product.additional_observations?.length ? `
-        <div class="product-details">
-          <strong>Additional observations</strong>
-          ${product.additional_observations.map(item => `<p>${escapeHTML(item)}</p>`).join("")}
-        </div>
-      ` : ""}
-
-      ${errors.length ? `
-        <div class="verification-warning">
-          <strong>Some photos could not be analysed</strong>
-          <p>${escapeHTML(errors.join("; "))}</p>
-        </div>
-      ` : ""}
-
-      ${!hasInformation ? `
-        <p>The AI could not identify enough product information. Try clearer photos with good lighting.</p>
-      ` : ""}
-
-      <div class="verification-warning">
-        <strong>Authenticity not verified</strong>
-        <p>
-          AI recognition identifies visible product information.
-          It does not establish whether this physical item is genuine,
-          counterfeit, safe or approved by a regulator.
-        </p>
-      </div>
-
-      <button id="saveCorrections" class="scan-again-button" type="button">Save corrected details</button>
-      <button id="scanAgain" class="scan-again-button" type="button">Scan another product</button>
-    `;
-
-    scanResult.hidden = false;
-
-    if (scannerStatus) {
-      scannerStatus.textContent = "AI analysis complete. Review the extracted information.";
-    }
-
-    const saveButton = $("saveCorrections");
-    if (saveButton) {
-      saveButton.addEventListener("click", () => {
-        const values = [...scanResult.querySelectorAll("[data-field]")].map(input => input.value.trim());
-        const name = values[0] || values[1] || "Product label — name not identified";
-        saveScan("AI label scan", name, "TrueMark AI");
-        showToast("Corrected product details saved.");
-      });
-    }
-
-    addScanAgainButton(
-      () => {
-        if (labelImageInput) labelImageInput.click();
-      },
-      "Choose more photos"
-    );
-  }
-
-  /* =========================
-     MULTI-PHOTO AI SCANNING
-  ========================= */
-
-  async function handleLabelPhoto(event) {
-    const files = Array.from(event.target.files || [])
-      .filter(file => file.type.startsWith("image/"))
-      .slice(0, 4);
-
-    if (!files.length) {
-      showToast("Choose one or more product photos.");
-      event.target.value = "";
-      return;
-    }
-
-    await stopCamera();
-    processingScan = true;
-
-    if (labelScanButton) labelScanButton.disabled = true;
-    if (startCameraButton) startCameraButton.disabled = true;
-
-    if (scanResult) {
-      scanResult.hidden = false;
-      scanResult.innerHTML = `
-        <h3>Connecting to TrueMark AI...</h3>
-        <p>Please keep this page open while your photos are analysed.</p>
-      `;
-    }
-
-    const results = [];
-    const errors = [];
-
-    try {
-      for (let i = 0; i < files.length; i++) {
-        try {
-          const result = await recognizeWithAI(files[i], i + 1, files.length);
-          results.push(result);
-        } catch (error) {
-          console.error(`Photo ${i + 1} error:`, error);
-          errors.push(`Photo ${i + 1}: ${error.message}`);
-        }
-      }
-
-      if (!results.length) {
-        throw new Error(errors.join(" | ") || "TrueMark AI could not analyse these photos.");
-      }
-
-      const product = combineResults(results);
-      renderAIResult(product, files.length, errors);
-      showToast("TrueMark AI analysis finished.");
-    } catch (error) {
-      console.error("AI recognition error:", error);
-
-      if (scanResult) {
-        scanResult.innerHTML = `
-          <h3>AI recognition unsuccessful</h3>
-          <p>${escapeHTML(error.message)}</p>
-          <p>Check your internet connection and try again.</p>
-          <button id="scanAgain" class="scan-again-button" type="button">Choose photos again</button>
-        `;
-        scanResult.hidden = false;
-      }
-
-      if (scannerStatus) scannerStatus.textContent = "TrueMark AI could not complete recognition.";
-
-      addScanAgainButton(
-        () => {
-          if (labelImageInput) labelImageInput.click();
-        },
-        "Choose photos again"
-      );
-    } finally {
-      if (labelScanButton) labelScanButton.disabled = false;
-      if (startCameraButton) startCameraButton.disabled = false;
-      if (labelImageInput) labelImageInput.value = "";
-      processingScan = false;
-    }
-  }
-
-  /* =========================
-     RESET AND CLOSE
-  ========================= */
-
-  async function resetScanner() {
-    await stopCamera();
-    processingScan = false;
-
-    if (scanResult) {
-      scanResult.hidden = true;
-      scanResult.innerHTML = "";
-    }
-
-    if (startCameraButton) {
-      startCameraButton.hidden = false;
-      startCameraButton.disabled = false;
-      startCameraButton.textContent = "Scan barcode";
-    }
-
-    if (scannerStatus) scannerStatus.textContent = "Choose a scanning method to begin.";
-  }
-
-  async function closeScannerModal() {
-    if (startingCamera || processingScan) {
-      showToast("Please wait for the current operation to finish.");
-      return;
-    }
-
-    await stopCamera();
-
-    if (scannerModal) {
-      scannerModal.classList.remove("open");
-      scannerModal.setAttribute("aria-hidden", "true");
-    }
-  }
-
-  /* =========================
-     EVENT LISTENERS
-  ========================= */
-
-  if (scanButton) scanButton.addEventListener("click", openScanner);
-  if (navScan) navScan.addEventListener("click", openScanner);
-  if (startCameraButton) startCameraButton.addEventListener("click", startCamera);
-
-  if (labelScanButton) {
-    labelScanButton.addEventListener("click", () => {
-      if (!startingCamera && !processingScan && labelImageInput) {
-        labelImageInput.click();
-      }
-    });
-  }
-
-  if (labelImageInput) labelImageInput.addEventListener("change", handleLabelPhoto);
-  if (closeScanner) closeScanner.addEventListener("click", closeScannerModal);
-
-  if (scannerModal) {
-    scannerModal.addEventListener("click", event => {
-      if (event.target === scannerModal) closeScannerModal();
-    });
-  }
-
-  document.querySelectorAll(".category-card").forEach(card => {
-    card.addEventListener("click", () => {
-      document.querySelectorAll(".category-card").forEach(item => item.classList.remove("selected"));
-      card.classList.add("selected");
-      showToast(`${card.dataset.category} selected.`);
-    });
-  });
-
-  const searchForm = $("searchForm");
-  if (searchForm) {
-    searchForm.addEventListener("submit", event => {
-      event.preventDefault();
-      const input = $("productSearch");
-      const query = input ? input.value.trim() : "";
-
-      if (!query) {
-        showToast("Enter a product name or barcode.");
-        return;
-      }
-
-      showToast("Product search will be connected in a later stage.");
-    });
-  }
-
-  document.querySelectorAll(".nav-item[data-target]").forEach(button => {
-    button.addEventListener("click", () => {
-      const target = $(button.dataset.target);
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-
-      document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
-      button.classList.add("active");
-    });
-  });
-
-  const viewHistory = $("viewHistory");
-  if (viewHistory) {
-    viewHistory.addEventListener("click", () => {
-      const section = $("history");
-      if (section) section.scrollIntoView({ behavior: "smooth" });
-    });
-  }
-
-  displayHistory();
-  console.log("TrueMark 5.2 initialised successfully.");
+
+const $ = id => document.getElementById(id);
+
+const API_URL =
+"https://truemark-ai.edialeeghonghon.workers.dev/recognize";
+
+const HISTORY_KEY = "truemarkScanHistory";
+
+const scanButton = $("scanButton");
+const navScan = $("navScan");
+const scannerModal = $("scannerModal");
+const closeScanner = $("closeScanner");
+const startCameraButton = $("startCamera");
+const labelScanButton = $("labelScanButton");
+const labelImageInput = $("labelImageInput");
+const scannerStatus = $("scannerStatus");
+const scanResult = $("scanResult");
+const historyList = $("historyList");
+const toast = $("toast");
+
+let html5QrCode = null;
+let cameraRunning = false;
+let startingCamera = false;
+let processingScan = false;
+
+if (labelImageInput) {
+labelImageInput.multiple = true;
+labelImageInput.accept = "image/*";
+}
+
+/* =========================
+GENERAL HELPERS
+========================= */
+
+function showToast(message) {
+if (!toast) return;
+
+toast.textContent = message;  
+toast.classList.add("show");  
+
+clearTimeout(showToast.timer);  
+
+showToast.timer = setTimeout(() => {  
+  toast.classList.remove("show");  
+}, 3000);
+
+}
+
+function escapeHTML(value) {
+return String(value ?? "").replace(/[&<>"']/g, ch => ({
+"&": "&",
+"<": "<",
+">": ">",
+'"': """,
+"'": "'"
+})[ch]);
+}
+
+function getHistory() {
+try {
+const data = JSON.parse(
+localStorage.getItem(HISTORY_KEY) || "[]"
+);
+
+return Array.isArray(data) ? data : [];  
+
+} catch {  
+  return [];  
+}
+
+}
+
+function saveScan(identifier, name, method) {
+try {
+const history = getHistory();
+
+history.unshift({  
+    barcode: identifier || "No barcode",  
+    name: name || "Product scan",  
+    method: method || "Scanned",  
+    date: new Date().toLocaleString()  
+  });  
+
+  localStorage.setItem(  
+    HISTORY_KEY,  
+    JSON.stringify(history.slice(0, 30))  
+  );  
+
+  displayHistory();  
+
+} catch (error) {  
+  console.warn("History error:", error);  
+}
+
+}
+
+function displayHistory() {
+if (!historyList) return;
+
+const history = getHistory();  
+
+if (!history.length) {  
+  historyList.innerHTML = `  
+    <div class="empty-state">  
+      <span class="empty-icon">▦</span>  
+      <h3>No scans yet</h3>  
+      <p>Products you scan will appear here.</p>  
+    </div>  
+  `;  
+  return;  
+}  
+
+historyList.innerHTML = history.map(item => `  
+  <div class="history-item">  
+    <div>  
+      <strong>${escapeHTML(item.name)}</strong>  
+      <small>  
+        ${escapeHTML(item.method || "Scanned")}  
+        · ${escapeHTML(item.barcode)}  
+      </small>  
+      <small>${escapeHTML(item.date)}</small>  
+    </div>  
+    <span class="history-badge">Scanned</span>  
+  </div>  
+`).join("");
+
+}
+
+/* =========================
+SCANNER MODAL
+========================= */
+
+function openScanner() {
+if (!scannerModal) {
+console.error("TrueMark: scannerModal element not found.");
+return;
+}
+
+processingScan = false;  
+
+if (scanResult) {  
+  scanResult.hidden = true;  
+  scanResult.innerHTML = "";  
+}  
+
+if (startCameraButton) {  
+  startCameraButton.hidden = false;  
+  startCameraButton.disabled = false;  
+  startCameraButton.textContent = "Scan barcode";  
+}  
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    "Choose a scanning method to begin.";  
+}  
+
+scannerModal.classList.add("open");  
+scannerModal.setAttribute("aria-hidden", "false");
+
+}
+
+async function startCamera() {
+if (cameraRunning || startingCamera || processingScan) return;
+
+if (  
+  typeof Html5Qrcode === "undefined" ||  
+  typeof Html5QrcodeSupportedFormats === "undefined"  
+) {  
+  if (scannerStatus) {  
+    scannerStatus.textContent =  
+      "Barcode scanner did not load. Reload the page.";  
+  }  
+  return;  
+}  
+
+if (!startCameraButton || !scannerStatus || !$("reader")) {  
+  showToast("Scanner elements are missing from the page.");  
+  return;  
+}  
+
+startingCamera = true;  
+
+startCameraButton.disabled = true;  
+startCameraButton.textContent = "Starting camera...";  
+
+scannerStatus.textContent =  
+  "Requesting camera permission...";  
+
+try {  
+  $("reader").innerHTML = "";  
+
+  html5QrCode = new Html5Qrcode("reader");  
+
+  const formats = [  
+    Html5QrcodeSupportedFormats.EAN_13,  
+    Html5QrcodeSupportedFormats.EAN_8,  
+    Html5QrcodeSupportedFormats.UPC_A,  
+    Html5QrcodeSupportedFormats.UPC_E,  
+    Html5QrcodeSupportedFormats.CODE_128,  
+    Html5QrcodeSupportedFormats.CODE_39,  
+    Html5QrcodeSupportedFormats.ITF,  
+    Html5QrcodeSupportedFormats.QR_CODE  
+  ];  
+
+  await html5QrCode.start(  
+    { facingMode: "environment" },  
+    {  
+      fps: 10,  
+      qrbox: {  
+        width: 250,  
+        height: 150  
+      },  
+      formatsToSupport: formats  
+    },  
+    onScanSuccess,  
+    () => {}  
+  );  
+
+  cameraRunning = true;  
+
+  startCameraButton.hidden = true;  
+
+  scannerStatus.textContent =  
+    "Camera active. Position a barcode inside the frame.";  
+
+} catch (error) {  
+  console.error("Camera error:", error);  
+
+  scannerStatus.textContent =  
+    "Unable to access camera. Check browser permissions.";  
+
+  startCameraButton.hidden = false;  
+  startCameraButton.textContent = "Try camera again";  
+
+} finally {  
+  startingCamera = false;  
+  startCameraButton.disabled = false;  
+}
+
+}
+
+async function stopCamera() {
+if (html5QrCode && cameraRunning) {
+try {
+await html5QrCode.stop();
+} catch (error) {
+console.warn("Camera stop:", error);
+}
+}
+
+cameraRunning = false;  
+html5QrCode = null;  
+
+if ($("reader")) {  
+  $("reader").innerHTML = "";  
+}
+
+}
+
+async function onScanSuccess(decodedText) {
+if (!cameraRunning || processingScan) return;
+
+processingScan = true;  
+cameraRunning = false;  
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    "Barcode detected. Looking up product information...";  
+}  
+
+try {  
+  if (html5QrCode && html5QrCode.isScanning) {  
+    await html5QrCode.stop();  
+  }  
+} catch (error) {  
+  console.warn(error);  
+}  
+
+html5QrCode = null;  
+
+await lookupProduct(decodedText);
+
+}
+
+/* =========================
+BARCODE LOOKUP
+========================= */
+
+async function lookupProduct(barcode) {
+const fields =
+"code,product_name,brands,categories,quantity,image_url,countries,manufacturing_places";
+
+const url =  
+  `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=${fields}`;  
+
+try {  
+  const response = await fetch(url);  
+
+  if (!response.ok) {  
+    throw new Error(`HTTP ${response.status}`);  
+  }  
+
+  const data = await response.json();  
+
+  if (data.status !== 1 || !data.product) {  
+    showProductNotFound(barcode);  
+
+    saveScan(  
+      barcode,  
+      "Product not found in current database",  
+      "Barcode"  
+    );  
+
+    return;  
+  }  
+
+  const product = data.product;  
+
+  displayProduct(product, barcode);  
+
+  saveScan(  
+    barcode,  
+    product.product_name ||  
+    product.brands ||  
+    "Product information found",  
+    "Barcode"  
+  );  
+
+  showToast("Product information retrieved.");  
+
+} catch (error) {  
+  console.error("Barcode lookup:", error);  
+
+  showProductUnavailable(barcode, error.message);  
+
+  saveScan(  
+    barcode,  
+    "Product lookup unavailable",  
+    "Barcode"  
+  );  
+}
+
+}
+
+function addScanAgainButton(
+action = resetScanner,
+label = "Scan another product"
+) {
+const button = $("scanAgain");
+
+if (button) {  
+  button.addEventListener("click", action);  
+  button.textContent = label;  
+}
+
+}
+
+function showProductNotFound(barcode) {
+if (!scanResult) return;
+
+scanResult.innerHTML = `  
+  <h3>No matching product record</h3>  
+
+  <p>  
+    Barcode:  
+    <strong>${escapeHTML(barcode)}</strong>  
+  </p>  
+
+  <div class="verification-warning">  
+    <strong>Not enough information to verify</strong>  
+    <p>  
+      This barcode is not listed in the current database.  
+      That does not mean the product is counterfeit.  
+    </p>  
+  </div>  
+
+  <button id="scanAgain"  
+    class="scan-again-button" type="button">  
+    Scan another product  
+  </button>  
+`;  
+
+scanResult.hidden = false;  
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    "No matching product record was found.";  
+}  
+
+addScanAgainButton();
+
+}
+
+function showProductUnavailable(barcode, reason) {
+if (!scanResult) return;
+
+scanResult.innerHTML = `  
+  <h3>Product lookup unavailable</h3>  
+
+  <p>  
+    Barcode: <strong>${escapeHTML(barcode)}</strong>  
+  </p>  
+
+  <p>  
+    TrueMark could not retrieve product information.  
+    ${escapeHTML(reason || "")}  
+  </p>  
+
+  <p>No authenticity conclusion has been made.</p>  
+
+  <button id="scanAgain"  
+    class="scan-again-button" type="button">  
+    Try again  
+  </button>  
+`;  
+
+scanResult.hidden = false;  
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    "Product information service unavailable.";  
+}  
+
+addScanAgainButton();
+
+}
+
+function displayProduct(product, barcode) {
+if (!scanResult) return;
+
+const fields = [  
+  ["Product", product.product_name],  
+  ["Brand", product.brands],  
+  ["Category", product.categories],  
+  ["Quantity", product.quantity],  
+  ["Countries listed", product.countries],  
+  ["Manufacturing location", product.manufacturing_places],  
+  ["Barcode", barcode]  
+];  
+
+const image = product.image_url || "";  
+
+scanResult.innerHTML = `  
+  <span class="result-check">✓</span>  
+  <h3>Product information found</h3>  
+
+  ${image ? `  
+    <img  
+      src="${escapeHTML(image)}"  
+      alt="Product reference"  
+      style="width:140px;max-height:150px;object-fit:contain;margin:15px auto;display:block;"  
+    >  
+  ` : ""}  
+
+  <div class="product-details">  
+    ${fields.map(([label, value]) => `  
+      <p>  
+        <strong>${label}:</strong>  
+        ${escapeHTML(value || "Not provided")}  
+      </p>  
+    `).join("")}  
+  </div>  
+
+  <div class="verification-warning">  
+    <strong>Authenticity not confirmed</strong>  
+    <p>  
+      This database record helps identify a product type.  
+      It does not authenticate the physical item.  
+    </p>  
+  </div>  
+
+  <p class="result-note">  
+    Source: Open Food Facts, a community-contributed database.  
+    Coverage and entries may be incomplete.  
+  </p>  
+
+  <button id="scanAgain"  
+    class="scan-again-button" type="button">  
+    Scan another product  
+  </button>  
+`;  
+
+scanResult.hidden = false;  
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    "Product information retrieved.";  
+}  
+
+addScanAgainButton();
+
+}
+
+/* =========================
+IMAGE PREPARATION
+========================= */
+
+async function prepareImage(file) {
+if (typeof createImageBitmap !== "function") {
+throw new Error(
+"Your browser cannot prepare this image. Try another browser."
+);
+}
+
+const bitmap = await createImageBitmap(file);  
+
+const maxSide = 1400;  
+
+const scale = Math.min(  
+  1,  
+  maxSide / Math.max(bitmap.width, bitmap.height)  
+);  
+
+const canvas = document.createElement("canvas");  
+
+canvas.width = Math.max(1, Math.round(bitmap.width * scale));  
+canvas.height = Math.max(1, Math.round(bitmap.height * scale));  
+
+const ctx = canvas.getContext("2d");  
+
+if (!ctx) {  
+  bitmap.close();  
+  throw new Error("Could not prepare the selected image.");  
+}  
+
+ctx.drawImage(  
+  bitmap,  
+  0,  
+  0,  
+  canvas.width,  
+  canvas.height  
+);  
+
+bitmap.close();  
+
+const blob = await new Promise((resolve, reject) => {  
+  canvas.toBlob(  
+    result => {  
+      if (result) resolve(result);  
+      else reject(new Error("Could not prepare image."));  
+    },  
+    "image/jpeg",  
+    0.82  
+  );  
+});  
+
+return new Promise((resolve, reject) => {  
+  const reader = new FileReader();  
+
+  reader.onload = () => resolve(reader.result);  
+
+  reader.onerror = () => {  
+    reject(new Error("Could not read the selected image."));  
+  };  
+
+  reader.readAsDataURL(blob);  
+});
+
+}
+
+/* =========================
+CLOUDFLARE AI
+========================= */
+
+async function recognizeWithAI(file, index, total) {
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    `Preparing photo ${index} of ${total}...`;  
+}  
+
+const image = await prepareImage(file);  
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    `AI is analysing photo ${index} of ${total}...`;  
+}  
+
+const response = await fetch(API_URL, {  
+  method: "POST",  
+  headers: {  
+    "Content-Type": "application/json"  
+  },  
+  body: JSON.stringify({ image })  
+});  
+
+let data;  
+
+try {  
+  data = await response.json();  
+} catch {  
+  throw new Error(  
+    "The AI server returned an invalid response."  
+  );  
+}  
+
+if (!response.ok || !data.success) {  
+  throw new Error(  
+    data.detail ||  
+    data.error ||  
+    `AI request failed (${response.status}).`  
+  );  
+}  
+
+if (!data.product || typeof data.product !== "object") {  
+  throw new Error(  
+    "The AI did not return product information."  
+  );  
+}  
+
+return data.product;
+
+}
+
+/* =========================
+COMBINE MULTIPLE RESULTS
+========================= */
+
+function combineResults(results) {
+const combined = {
+product_name: null,
+brand: null,
+category: null,
+manufacturer: null,
+distributor: null,
+ingredients: [],
+strength_or_size: null,
+batch_number: null,
+manufacturing_date: null,
+expiry_date: null,
+country_of_origin: null,
+confidence: "low",
+uncertain_fields: [],
+additional_observations: [],
+recognition_status: "needs_review",
+authenticity_status: "not_verified"
+};
+
+const fields = [  
+  "product_name",  
+  "brand",  
+  "category",  
+  "manufacturer",  
+  "distributor",  
+  "strength_or_size",  
+  "batch_number",  
+  "manufacturing_date",  
+  "expiry_date",  
+  "country_of_origin"  
+];  
+
+results.forEach(product => {  
+  fields.forEach(field => {  
+    if (  
+      !combined[field] &&  
+      product[field] &&  
+      typeof product[field] === "string"  
+    ) {  
+      combined[field] = product[field];  
+    }  
+  });  
+
+  if (Array.isArray(product.ingredients)) {  
+    combined.ingredients.push(...product.ingredients);  
+  }  
+
+  if (Array.isArray(product.uncertain_fields)) {  
+    combined.uncertain_fields.push(  
+      ...product.uncertain_fields  
+    );  
+  }  
+
+  if (Array.isArray(product.additional_observations)) {  
+    combined.additional_observations.push(  
+      ...product.additional_observations  
+    );  
+  }  
+
+  if (product.confidence === "high") {  
+    combined.confidence = "high";  
+  } else if (  
+    product.confidence === "medium" &&  
+    combined.confidence !== "high"  
+  ) {  
+    combined.confidence = "medium";  
+  }  
+});  
+
+combined.ingredients = [  
+  ...new Set(combined.ingredients.filter(Boolean))  
+];  
+
+combined.uncertain_fields = [  
+  ...new Set(combined.uncertain_fields.filter(Boolean))  
+];  
+
+combined.additional_observations = [  
+  ...new Set(combined.additional_observations.filter(Boolean))  
+];  
+
+if (combined.product_name || combined.brand) {  
+  combined.recognition_status = "identified";  
+}  
+
+combined.authenticity_status = "not_verified";  
+
+return combined;
+
+}
+
+/* =========================
+DISPLAY AI RESULTS
+========================= */
+
+function renderAIResult(product, photoCount, errors = []) {
+if (!scanResult) return;
+
+const ingredients = Array.isArray(product.ingredients)  
+  ? product.ingredients.join(", ")  
+  : "";  
+
+const fields = [  
+  ["Product name", product.product_name],  
+  ["Brand", product.brand],  
+  ["Category", product.category],  
+  ["Manufacturer", product.manufacturer],  
+  ["Distributor", product.distributor],  
+  ["Strength / size", product.strength_or_size],  
+  ["Ingredients", ingredients],  
+  ["Batch / lot number", product.batch_number],  
+  ["Manufacturing date", product.manufacturing_date],  
+  ["Expiry date", product.expiry_date],  
+  ["Country of origin", product.country_of_origin]  
+];  
+
+const hasInformation = fields.some(([, value]) => value);  
+
+scanResult.innerHTML = `  
+  <h3>TrueMark AI recognition results</h3>  
+
+  <p>  
+    Analysed ${photoCount} photo${photoCount === 1 ? "" : "s"}.  
+  </p>  
+
+  <p>  
+    <strong>AI confidence:</strong>  
+    ${escapeHTML(product.confidence || "Not available")}  
+  </p>  
+
+  <div class="tm4-fields">  
+    ${fields.map(([label, value], index) => `  
+      <label class="tm4-field">  
+        <span>${label}</span>  
+        <input  
+          type="text"  
+          data-field="${index}"  
+          value="${escapeHTML(value || "")}"  
+          placeholder="Not identified"  
+        >  
+      </label>  
+    `).join("")}  
+  </div>  
+
+  ${product.uncertain_fields?.length ? `  
+    <div class="verification-warning">  
+      <strong>Fields requiring review</strong>  
+      <p>${escapeHTML(product.uncertain_fields.join(", "))}</p>  
+    </div>  
+  ` : ""}  
+
+  ${product.additional_observations?.length ? `  
+    <div class="product-details">  
+      <strong>Additional observations</strong>  
+      ${product.additional_observations.map(item => `  
+        <p>${escapeHTML(item)}</p>  
+      `).join("")}  
+    </div>  
+  ` : ""}  
+
+  ${errors.length ? `  
+    <div class="verification-warning">  
+      <strong>Some photos could not be analysed</strong>  
+      <p>${escapeHTML(errors.join("; "))}</p>  
+    </div>  
+  ` : ""}  
+
+  ${!hasInformation ? `  
+    <p>  
+      The AI could not identify enough product information.  
+      Try clearer photos with good lighting.  
+    </p>  
+  ` : ""}  
+
+  <div class="verification-warning">  
+    <strong>Authenticity not verified</strong>  
+    <p>  
+      AI recognition identifies visible product information.  
+      It does not establish whether this physical item is genuine,  
+      counterfeit, safe or approved by a regulator.  
+    </p>  
+  </div>  
+
+  <button  
+    id="saveCorrections"  
+    class="scan-again-button"  
+    type="button"  
+  >  
+    Save corrected details  
+  </button>  
+
+  <button  
+    id="scanAgain"  
+    class="scan-again-button"  
+    type="button"  
+  >  
+    Scan another product  
+  </button>  
+`;  
+
+scanResult.hidden = false;  
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    "AI analysis complete. Review the extracted information.";  
+}  
+
+const saveButton = $("saveCorrections");  
+
+if (saveButton) {  
+  saveButton.addEventListener("click", () => {  
+    const values = [  
+      ...scanResult.querySelectorAll("[data-field]")  
+    ].map(input => input.value.trim());  
+
+    const name =  
+      values[0] ||  
+      values[1] ||  
+      "Product label — name not identified";  
+
+    saveScan("AI label scan", name, "TrueMark AI");  
+
+    showToast("Corrected product details saved.");  
+  });  
+}  
+
+addScanAgainButton(  
+  () => {  
+    if (labelImageInput) {  
+      labelImageInput.click();  
+    }  
+  },  
+  "Choose more photos"  
+);
+
+}
+
+/* =========================
+MULTI-PHOTO AI SCANNING
+========================= */
+
+async function handleLabelPhoto(event) {
+const files = Array.from(event.target.files || [])
+.filter(file => file.type.startsWith("image/"))
+.slice(0, 4);
+
+if (!files.length) {  
+  showToast("Choose one or more product photos.");  
+  event.target.value = "";  
+  return;  
+}  
+
+await stopCamera();  
+
+processingScan = true;  
+
+if (labelScanButton) {  
+  labelScanButton.disabled = true;  
+}  
+
+if (startCameraButton) {  
+  startCameraButton.disabled = true;  
+}  
+
+if (scanResult) {  
+  scanResult.hidden = false;  
+
+  scanResult.innerHTML = `  
+    <h3>Connecting to TrueMark AI...</h3>  
+    <p>Please keep this page open while your photos are analysed.</p>  
+  `;  
+}  
+
+const results = [];  
+const errors = [];  
+
+try {  
+  for (let i = 0; i < files.length; i++) {  
+    try {  
+      const result = await recognizeWithAI(  
+        files[i],  
+        i + 1,  
+        files.length  
+      );  
+
+      results.push(result);  
+
+    } catch (error) {  
+      console.error(`Photo ${i + 1} error:`, error);  
+
+      errors.push(  
+        `Photo ${i + 1}: ${error.message}`  
+      );  
+    }  
+  }  
+
+  if (!results.length) {  
+    throw new Error(  
+      errors.join(" | ") ||  
+      "TrueMark AI could not analyse these photos."  
+    );  
+  }  
+
+  const product = combineResults(results);  
+
+  renderAIResult(product, files.length, errors);  
+
+  showToast("TrueMark AI analysis finished.");  
+
+} catch (error) {  
+  console.error("AI recognition error:", error);  
+
+  if (scanResult) {  
+    scanResult.innerHTML = `  
+      <h3>AI recognition unsuccessful</h3>  
+
+      <p>${escapeHTML(error.message)}</p>  
+
+      <p>  
+        Check your internet connection and try again.  
+      </p>  
+
+      <button  
+        id="scanAgain"  
+        class="scan-again-button"  
+        type="button"  
+      >  
+        Choose photos again  
+      </button>  
+    `;  
+
+    scanResult.hidden = false;  
+  }  
+
+  if (scannerStatus) {  
+    scannerStatus.textContent =  
+      "TrueMark AI could not complete recognition.";  
+  }  
+
+  addScanAgainButton(  
+    () => {  
+      if (labelImageInput) {  
+        labelImageInput.click();  
+      }  
+    },  
+    "Choose photos again"  
+  );  
+
+} finally {  
+  if (labelScanButton) {  
+    labelScanButton.disabled = false;  
+  }  
+
+  if (startCameraButton) {  
+    startCameraButton.disabled = false;  
+  }  
+
+  if (labelImageInput) {  
+    labelImageInput.value = "";  
+  }  
+
+  processingScan = false;  
+}
+
+}
+
+/* =========================
+RESET AND CLOSE
+========================= */
+
+async function resetScanner() {
+await stopCamera();
+
+processingScan = false;  
+
+if (scanResult) {  
+  scanResult.hidden = true;  
+  scanResult.innerHTML = "";  
+}  
+
+if (startCameraButton) {  
+  startCameraButton.hidden = false;  
+  startCameraButton.disabled = false;  
+  startCameraButton.textContent = "Scan barcode";  
+}  
+
+if (scannerStatus) {  
+  scannerStatus.textContent =  
+    "Choose a scanning method to begin.";  
+}
+
+}
+
+async function closeScannerModal() {
+if (startingCamera || processingScan) {
+showToast("Please wait for the current operation to finish.");
+return;
+}
+
+await stopCamera();  
+
+if (scannerModal) {  
+  scannerModal.classList.remove("open");  
+  scannerModal.setAttribute("aria-hidden", "true");  
+}
+
+}
+
+/* =========================
+EVENT LISTENERS
+========================= */
+
+if (scanButton) {
+scanButton.addEventListener("click", openScanner);
+}
+
+if (navScan) {
+navScan.addEventListener("click", openScanner);
+}
+
+if (startCameraButton) {
+startCameraButton.addEventListener("click", startCamera);
+}
+
+if (labelScanButton) {
+labelScanButton.addEventListener("click", () => {
+if (
+!startingCamera &&
+!processingScan &&
+labelImageInput
+) {
+labelImageInput.click();
+}
+});
+}
+
+if (labelImageInput) {
+labelImageInput.addEventListener(
+"change",
+handleLabelPhoto
+);
+}
+
+if (closeScanner) {
+closeScanner.addEventListener(
+"click",
+closeScannerModal
+);
+}
+
+if (scannerModal) {
+scannerModal.addEventListener("click", event => {
+if (event.target === scannerModal) {
+closeScannerModal();
+}
+});
+}
+
+document.querySelectorAll(".category-card").forEach(card => {
+card.addEventListener("click", () => {
+document.querySelectorAll(".category-card").forEach(item => {
+item.classList.remove("selected");
+});
+
+card.classList.add("selected");  
+
+  showToast(`${card.dataset.category} selected.`);  
+});
+
+});
+
+const searchForm = $("searchForm");
+
+if (searchForm) {
+searchForm.addEventListener("submit", event => {
+event.preventDefault();
+
+const input = $("productSearch");  
+  const query = input ? input.value.trim() : "";  
+
+  if (!query) {  
+    showToast("Enter a product name or barcode.");  
+    return;  
+  }  
+
+  showToast(  
+    "Product search will be connected in a later stage."  
+  );  
+});
+
+}
+
+document.querySelectorAll(".nav-item[data-target]").forEach(button => {
+button.addEventListener("click", () => {
+const target = $(button.dataset.target);
+
+if (target) {  
+    target.scrollIntoView({  
+      behavior: "smooth",  
+      block: "start"  
+    });  
+  }  
+
+  document.querySelectorAll(".nav-item").forEach(item => {  
+    item.classList.remove("active");  
+  });  
+
+  button.classList.add("active");  
+});
+
+});
+
+const viewHistory = $("viewHistory");
+
+if (viewHistory) {
+viewHistory.addEventListener("click", () => {
+const section = $("history");
+
+if (section) {  
+    section.scrollIntoView({  
+      behavior: "smooth"  
+    });  
+  }  
+});
+
+}
+
+/* =========================
+INITIALISE TRUEMARK
+========================= */
+
+displayHistory();
+
+console.log("TrueMark 5.1 initialised successfully.");
+
 });
