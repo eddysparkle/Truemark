@@ -427,8 +427,9 @@ function showProductUnavailable(barcode, reason) {
     <div class="verification-warning">
       <strong>Try a label photo</strong>
       <p>
-        TrueMark could not finish the catalogue lookup
-        \( {reason ? `( \){escapeHTML(reason)})` : ""}.
+        TrueMark could not finish the catalogue lookup${
+          reason ? " (" + escapeHTML(reason) + ")" : ""
+        }.
       </p>
       <p>
         Photograph the label to extract visible product details
