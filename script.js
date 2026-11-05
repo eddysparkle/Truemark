@@ -452,7 +452,7 @@ function showProductUnavailable(barcode, reason) {
   }, "Photograph product label");
 }
 
-function displayProduct(product, barcode) {
+function displayProduct(product, barcode, sources = []) {
 if (!scanResult) return;
 
 const fields = [  
