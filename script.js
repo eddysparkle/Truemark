@@ -382,40 +382,40 @@ if (button) {
 
 }
 
-function showProductNotFound(barcode) {
-if (!scanResult) return;
+function showProductNotFound(barcode, message) {
+  if (!scanResult) return;
 
-scanResult.innerHTML = `  
-  <h3>No matching product record</h3>  
+  scanResult.innerHTML = `
+    <h3>No catalogue match found</h3>
+    <p>Barcode: <strong>${escapeHTML(barcode)}</strong></p>
+    <div class="verification-warning">
+      <strong>This does not mean the product is fake</strong>
+      <p>
+        ${escapeHTML(
+          message ||
+            "TrueMark could not find this barcode in the connected public catalogues."
+        )}
+      </p>
+      <p>
+        Next step: photograph the product label so we can extract the name,
+        brand and any registration number on the pack.
+      </p>
+    </div>
+    <button id="scanAgain" class="scan-again-button" type="button">
+      Photograph product label
+    </button>
+  `;
 
-  <p>  
-    Barcode:  
-    <strong>${escapeHTML(barcode)}</strong>  
-  </p>  
+  scanResult.hidden = false;
 
-  <div class="verification-warning">  
-    <strong>Not enough information to verify</strong>  
-    <p>  
-      This barcode is not listed in the current database.  
-      That does not mean the product is counterfeit.  
-    </p>  
-  </div>  
+  if (scannerStatus) {
+    scannerStatus.textContent =
+      "No catalogue match. Label photo is the best next step.";
+  }
 
-  <button id="scanAgain"  
-    class="scan-again-button" type="button">  
-    Scan another product  
-  </button>  
-`;  
-
-scanResult.hidden = false;  
-
-if (scannerStatus) {  
-  scannerStatus.textContent =  
-    "No matching product record was found.";  
-}  
-
-addScanAgainButton();
-
+  addScanAgainButton(() => {
+    if (labelImageInput) labelImageInput.click();
+  }, "Photograph product label");
 }
 
 function showProductUnavailable(barcode, reason) {
