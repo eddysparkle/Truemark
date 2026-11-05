@@ -747,19 +747,20 @@ const ingredients = Array.isArray(product.ingredients)
   ? product.ingredients.join(", ")  
   : "";  
 
-const fields = [  
-  ["Product name", product.product_name],  
-  ["Brand", product.brand],  
-  ["Category", product.category],  
-  ["Manufacturer", product.manufacturer],  
-  ["Distributor", product.distributor],  
-  ["Strength / size", product.strength_or_size],  
-  ["Ingredients", ingredients],  
-  ["Batch / lot number", product.batch_number],  
-  ["Manufacturing date", product.manufacturing_date],  
-  ["Expiry date", product.expiry_date],  
-  ["Country of origin", product.country_of_origin]  
-];  
+const fields = [
+    ["Product name", product.product_name],
+    ["Brand", product.brand],
+    ["Category", product.category],
+    ["Manufacturer", product.manufacturer],
+    ["Distributor", product.distributor],
+    ["Strength / size", product.strength_or_size],
+    ["Ingredients", ingredients],
+    ["NAFDAC number", product.nafdac_number],
+    ["Batch / lot number", product.batch_number],
+    ["Manufacturing date", product.manufacturing_date],
+    ["Expiry date", product.expiry_date],
+    ["Country of origin", product.country_of_origin]
+  ];
 
 const hasInformation = fields.some(([, value]) => value);  
 
