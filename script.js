@@ -744,14 +744,18 @@ return combined;
 DISPLAY AI RESULTS
 ========================= */
 
+
 function renderAIResult(product, photoCount, errors = []) {
-if (!scanResult) return;
+  if (!scanResult) return;
 
-const ingredients = Array.isArray(product.ingredients)  
-  ? product.ingredients.join(", ")  
-  : "";  
+  const ingredients = Array.isArray(product.ingredients)
+    ? product.ingredients.join(", ")
+    : (product.ingredients || "");
 
-const fields = [
+  const nafdac = String(product.nafdac_number || "").trim();
+  const confidence = String(product.confidence || "low").toLowerCase();
+
+  const fields = [
     ["Product name", product.product_name],
     ["Brand", product.brand],
     ["Category", product.category],
@@ -759,134 +763,207 @@ const fields = [
     ["Distributor", product.distributor],
     ["Strength / size", product.strength_or_size],
     ["Ingredients", ingredients],
-    ["NAFDAC number", product.nafdac_number],
+    ["NAFDAC number", nafdac],
     ["Batch / lot number", product.batch_number],
     ["Manufacturing date", product.manufacturing_date],
     ["Expiry date", product.expiry_date],
     ["Country of origin", product.country_of_origin]
   ];
 
-const hasInformation = fields.some(([, value]) => value);  
+  const hasInformation = fields.some(([, value]) => value);
 
-scanResult.innerHTML = `  
-  <h3>TrueMark AI recognition results</h3>  
+  const nafdacBlock = nafdac
+    ? `
+      <div class="verification-warning" style="border-left:4px solid #0b6e4f;margin-top:12px;">
+        <strong>NAFDAC number read from pack</strong>
+        <p style="font-size:1.15rem;font-weight:700;letter-spacing:0.02em;">
+          ${escapeHTML(nafdac)}
+        </p>
+        <p>
+          This number was read from the label. It is <strong>not</strong> live proof
+          that this physical item is genuine. Counterfeiters sometimes copy real numbers.
+        </p>
+        <p><strong>Verify on official NAFDAC channels:</strong></p>
+        <p style="display:flex;flex-direction:column;gap:8px;">
+          <a
+            href="https://registration.nafdac.gov.ng/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="scan-again-button"
+            style="text-align:center;text-decoration:none;"
+          >
+            Verify on NAPAMS (official)
+          </a>
+          <a
+            href="https://greenbook.nafdac.gov.ng/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="scan-again-button"
+            style="text-align:center;text-decoration:none;"
+          >
+            Check NAFDAC Greenbook (medicines)
+          </a>
+        </p>
+        <p style="font-size:0.9rem;">
+          On NAPAMS: use <em>Verify Product</em> and enter the number exactly as printed
+          (often without spaces). On Greenbook: search the number or product name and
+          compare name, strength and manufacturer with the pack.
+        </p>
+      </div>
+    `
+    : `
+      <div class="verification-warning">
+        <strong>No NAFDAC number detected</strong>
+        <p>
+          If a NAFDAC registration number is printed on the pack, take a clearer photo
+          of that area, or enter it manually in the field above, then use the official
+          links after saving.
+        </p>
+        <p style="display:flex;flex-direction:column;gap:8px;">
+          <a
+            href="https://registration.nafdac.gov.ng/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="scan-again-button"
+            style="text-align:center;text-decoration:none;"
+          >
+            Open NAPAMS Verify Product
+          </a>
+          <a
+            href="https://greenbook.nafdac.gov.ng/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="scan-again-button"
+            style="text-align:center;text-decoration:none;"
+          >
+            Open NAFDAC Greenbook
+          </a>
+        </p>
+      </div>
+    `;
 
-  <p>  
-    Analysed ${photoCount} photo${photoCount === 1 ? "" : "s"}.  
-  </p>  
+  scanResult.innerHTML = `
+    <h3>TrueMark AI recognition results</h3>
 
-  <p>  
-    <strong>AI confidence:</strong>  
-    ${escapeHTML(product.confidence || "Not available")}  
-  </p>  
+    <p>
+      Analysed \( {photoCount} photo \){photoCount === 1 ? "" : "s"}.
+    </p>
 
-  <div class="tm4-fields">  
-    ${fields.map(([label, value], index) => `  
-      <label class="tm4-field">  
-        <span>${label}</span>  
-        <input  
-          type="text"  
-          data-field="${index}"  
-          value="${escapeHTML(value || "")}"  
-          placeholder="Not identified"  
-        >  
-      </label>  
-    `).join("")}  
-  </div>  
+    <p>
+      <strong>AI confidence:</strong>
+      ${escapeHTML(confidence)}
+      ${confidence === "low" ? " — please review every field against the pack." : ""}
+    </p>
 
-  ${product.uncertain_fields?.length ? `  
-    <div class="verification-warning">  
-      <strong>Fields requiring review</strong>  
-      <p>${escapeHTML(product.uncertain_fields.join(", "))}</p>  
-    </div>  
-  ` : ""}  
+    <div class="tm4-fields">
+      ${fields.map(([label, value], index) => `
+        <label class="tm4-field">
+          <span>${label}</span>
+          <input
+            type="text"
+            data-field="${index}"
+            value="${escapeHTML(value || "")}"
+            placeholder="Not identified — correct if needed"
+          >
+        </label>
+      `).join("")}
+    </div>
 
-  ${product.additional_observations?.length ? `  
-    <div class="product-details">  
-      <strong>Additional observations</strong>  
-      ${product.additional_observations.map(item => `  
-        <p>${escapeHTML(item)}</p>  
-      `).join("")}  
-    </div>  
-  ` : ""}  
+    ${nafdacBlock}
 
-  ${errors.length ? `  
-    <div class="verification-warning">  
-      <strong>Some photos could not be analysed</strong>  
-      <p>${escapeHTML(errors.join("; "))}</p>  
-    </div>  
-  ` : ""}  
+    ${!hasInformation ? `
+      <div class="verification-warning">
+        <strong>Limited information extracted</strong>
+        <p>
+          Try clearer photos with good lighting, focusing on the brand panel
+          and any NAFDAC / batch / expiry text.
+        </p>
+      </div>
+    ` : ""}
 
-  ${!hasInformation ? `  
-    <p>  
-      The AI could not identify enough product information.  
-      Try clearer photos with good lighting.  
-    </p>  
-  ` : ""}  
+    <div class="verification-warning">
+      <strong>Authenticity not verified</strong>
+      <p>
+        AI recognition identifies visible product information.
+        It does not establish whether this physical item is genuine,
+        counterfeit, safe or approved by a regulator.
+      </p>
+      <p>
+        Always confirm name, NAFDAC number, batch and expiry on the physical packaging,
+        and use official NAFDAC channels for registration checks.
+      </p>
+    </div>
 
-  <div class="verification-warning">  
-    <strong>Authenticity not verified</strong>  
-    <p>  
-      AI recognition identifies visible product information.  
-      It does not establish whether this physical item is genuine,  
-      counterfeit, safe or approved by a regulator.  
-    </p>  
-  </div>  
+    <button
+      id="saveCorrections"
+      class="scan-again-button"
+      type="button"
+    >
+      Save corrected details
+    </button>
 
-  <button  
-    id="saveCorrections"  
-    class="scan-again-button"  
-    type="button"  
-  >  
-    Save corrected details  
-  </button>  
+    <button
+      id="scanAgain"
+      class="scan-again-button"
+      type="button"
+    >
+      Scan another product
+    </button>
+  `;
 
-  <button  
-    id="scanAgain"  
-    class="scan-again-button"  
-    type="button"  
-  >  
-    Scan another product  
-  </button>  
-`;  
+  scanResult.hidden = false;
 
-scanResult.hidden = false;  
+  if (scannerStatus) {
+    scannerStatus.textContent =
+      "AI analysis complete. Review fields, then verify any NAFDAC number on official channels.";
+  }
 
-if (scannerStatus) {  
-  scannerStatus.textContent =  
-    "AI analysis complete. Review the extracted information.";  
-}  
+  const saveButton = $("saveCorrections");
 
-const saveButton = $("saveCorrections");  
+  if (saveButton) {
+    saveButton.addEventListener("click", () => {
+      const values = [
+        ...scanResult.querySelectorAll("[data-field]")
+      ].map((input) => input.value.trim());
 
-if (saveButton) {  
-  saveButton.addEventListener("click", () => {  
-    const values = [  
-      ...scanResult.querySelectorAll("[data-field]")  
-    ].map(input => input.value.trim());  
+      const corrected = {
+        product_name: values[0] || "",
+        brand: values[1] || "",
+        category: values[2] || "",
+        manufacturer: values[3] || "",
+        distributor: values[4] || "",
+        strength_or_size: values[5] || "",
+        ingredients: values[6] || "",
+        nafdac_number: values[7] || "",
+        batch_number: values[8] || "",
+        manufacturing_date: values[9] || "",
+        expiry_date: values[10] || "",
+        country_of_origin: values[11] || "",
+        confidence: product.confidence || "low"
+      };
 
-    const name =  
-      values[0] ||  
-      values[1] ||  
-      "Product label — name not identified";  
+      const label =
+        corrected.product_name ||
+        corrected.brand ||
+        corrected.nafdac_number ||
+        "Label scan saved";
 
-    saveScan("AI label scan", name, "TrueMark AI");  
+      saveScan(
+        corrected.nafdac_number || "AI label scan",
+        label,
+        "TrueMark AI"
+      );
 
-    showToast("Corrected product details saved.");  
-  });  
-}  
+      showToast("Corrected details saved. Verify NAFDAC on official channels if present.");
+    });
+  }
 
-addScanAgainButton(  
-  () => {  
-    if (labelImageInput) {  
-      labelImageInput.click();  
-    }  
-  },  
-  "Choose more photos"  
-);
-
+  addScanAgainButton();
 }
 
+
+
+  
 /* =========================
 MULTI-PHOTO AI SCANNING
 ========================= */
