@@ -661,7 +661,10 @@ confidence: "low",
 uncertain_fields: [],
 additional_observations: [],
 recognition_status: "needs_review",
+nafdac_number: null,
 authenticity_status: "not_verified"
+  
+
 };
 
 const fields = [  
@@ -674,7 +677,8 @@ const fields = [
   "batch_number",  
   "manufacturing_date",  
   "expiry_date",  
-  "country_of_origin"  
+  "country_of_origin", 
+  "nafdac_number"
 ];  
 
 results.forEach(product => {  
