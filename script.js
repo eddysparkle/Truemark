@@ -299,59 +299,74 @@ BARCODE LOOKUP
 ========================= */
 
 async function lookupProduct(barcode) {
-const fields =
-"code,product_name,brands,categories,quantity,image_url,countries,manufacturing_places";
+  const WORKER_URL =
+    "https://truemark-ai.edialeeghonghon.workers.dev/verify/barcode";
 
-const url =  
-  `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?fields=${fields}`;  
+  if (scannerStatus) {
+    scannerStatus.textContent = "Checking TrueMark product catalogues...";
+  }
 
-try {  
-  const response = await fetch(url);  
+  try {
+    const response = await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ barcode: String(barcode).trim() })
+    });
 
-  if (!response.ok) {  
-    throw new Error(`HTTP ${response.status}`);  
-  }  
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error("The TrueMark server returned an invalid response.");
+    }
 
-  const data = await response.json();  
+    // Unknown barcode — helpful result, not an error
+    if (
+      data.status === "not_found" ||
+      data.status === "ORANGE" ||
+      (!data.product && !data.primary_match && !(data.matches && data.matches.length))
+    ) {
+      showProductNotFound(
+        barcode,
+        data.message ||
+          "TrueMark could not find this barcode in the connected public catalogues."
+      );
+      saveScan(barcode, "No catalogue match found", "TrueMark Worker");
+      return;
+    }
 
-  if (data.status !== 1 || !data.product) {  
-    showProductNotFound(barcode);  
+    if (!response.ok && data.success === false) {
+      throw new Error(data.message || data.error || `Lookup failed (${response.status}).`);
+    }
 
-    saveScan(  
-      barcode,  
-      "Product not found in current database",  
-      "Barcode"  
-    );  
+    const match =
+      data.product ||
+      data.primary_match?.product ||
+      data.matches?.[0]?.product ||
+      {};
 
-    return;  
-  }  
+    const product = {
+      product_name: match.name || match.product_name || "",
+      brands: match.brand || match.brands || "",
+      categories: match.category || match.categories || "",
+      quantity: match.quantity || match.strength_or_size || "",
+      countries: match.country_of_origin || match.countries || "",
+      manufacturing_places: match.manufacturer || match.manufacturing_places || "",
+      image_url: match.image_url || match.image_front_url || ""
+    };
 
-  const product = data.product;  
-
-  displayProduct(product, barcode);  
-
-  saveScan(  
-    barcode,  
-    product.product_name ||  
-    product.brands ||  
-    "Product information found",  
-    "Barcode"  
-  );  
-
-  showToast("Product information retrieved.");  
-
-} catch (error) {  
-  console.error("Barcode lookup:", error);  
-
-  showProductUnavailable(barcode, error.message);  
-
-  saveScan(  
-    barcode,  
-    "Product lookup unavailable",  
-    "Barcode"  
-  );  
-}
-
+    displayProduct(product, barcode, data.sources || []);
+    saveScan(
+      barcode,
+      product.product_name || product.brands || "Product identified",
+      "TrueMark Worker"
+    );
+    showToast("Product information retrieved.");
+  } catch (error) {
+    console.error("TrueMark barcode lookup:", error);
+    showProductUnavailable(barcode, error.message || "network error");
+    saveScan(barcode, "Catalogue check incomplete", "TrueMark Worker");
+  }
 }
 
 function addScanAgainButton(
