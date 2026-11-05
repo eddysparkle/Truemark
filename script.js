@@ -419,37 +419,37 @@ function showProductNotFound(barcode, message) {
 }
 
 function showProductUnavailable(barcode, reason) {
-if (!scanResult) return;
+  if (!scanResult) return;
 
-scanResult.innerHTML = `  
-  <h3>Product lookup unavailable</h3>  
+  scanResult.innerHTML = `
+    <h3>Catalogue check could not be completed</h3>
+    <p>Barcode: <strong>${escapeHTML(barcode)}</strong></p>
+    <div class="verification-warning">
+      <strong>Try a label photo</strong>
+      <p>
+        TrueMark could not finish the catalogue lookup
+        \( {reason ? `( \){escapeHTML(reason)})` : ""}.
+      </p>
+      <p>
+        Photograph the label to extract visible product details
+        and any regulatory number on the pack.
+      </p>
+    </div>
+    <button id="scanAgain" class="scan-again-button" type="button">
+      Photograph product label
+    </button>
+  `;
 
-  <p>  
-    Barcode: <strong>${escapeHTML(barcode)}</strong>  
-  </p>  
+  scanResult.hidden = false;
 
-  <p>  
-    TrueMark could not retrieve product information.  
-    ${escapeHTML(reason || "")}  
-  </p>  
+  if (scannerStatus) {
+    scannerStatus.textContent =
+      "Catalogue check incomplete. Label photo recommended.";
+  }
 
-  <p>No authenticity conclusion has been made.</p>  
-
-  <button id="scanAgain"  
-    class="scan-again-button" type="button">  
-    Try again  
-  </button>  
-`;  
-
-scanResult.hidden = false;  
-
-if (scannerStatus) {  
-  scannerStatus.textContent =  
-    "Product information service unavailable.";  
-}  
-
-addScanAgainButton();
-
+  addScanAgainButton(() => {
+    if (labelImageInput) labelImageInput.click();
+  }, "Photograph product label");
 }
 
 function displayProduct(product, barcode) {
