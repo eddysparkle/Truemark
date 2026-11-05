@@ -719,10 +719,14 @@ async function recognizeProduct(body, env) {
       product_name: '',
       brand: '',
       category: '',
+      manufacturer: '',
+      strength_or_size: '',
       barcode: '',
       nafdac_number: '',
       batch_number: '',
+      manufacturing_date: '',
       expiry_date: '',
+      country_of_origin: '',
       confidence: 'low',
       notes: clean(raw, 1000)
     };
