@@ -143,6 +143,15 @@ video {
   max-width: 520px;
 }
 
+.beta-banner {
+  background: #0b6e4f;
+  color: #fff;
+  font-size: 0.85rem;
+  padding: 10px 14px;
+  text-align: center;
+  line-height: 1.4;
+}
+   
 /* MAIN SCAN CARD */
 
 .scan-card {
