@@ -1186,16 +1186,28 @@ closeScannerModal();
 }
 
 document.querySelectorAll(".category-card").forEach(card => {
-card.addEventListener("click", () => {
-document.querySelectorAll(".category-card").forEach(item => {
-item.classList.remove("selected");
-});
+  card.addEventListener("click", () => {
+    document.querySelectorAll(".category-card").forEach(item => {
+      item.classList.remove("selected");
+    });
 
-card.classList.add("selected");  
+    card.classList.add("selected");
 
-  showToast(`${card.dataset.category} selected.`);  
-});
+    const category = card.dataset.category || "Product";
 
+    openScanner();
+
+    if (scannerStatus) {
+      scannerStatus.textContent =
+        category === "Health"
+          ? "Health & medicines — scan the barcode or photograph the label (look for NAFDAC number)."
+          : category === "Beauty" || category === "Personal Care"
+          ? `${category} — scan the barcode or photograph the label (brand, batch, NAFDAC if shown).`
+          : `${category} — scan the barcode, or photograph the label if there is no barcode.`;
+    }
+
+    showToast(`${category}: ready to scan`);
+  });
 });
 
 const searchForm = $("searchForm");
