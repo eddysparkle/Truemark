@@ -994,3 +994,28 @@ a:focus-visible {
     animation-duration: .01ms !important;
   }
 }
+
+
+
+
+
+
+.feedback-row {
+  text-align: center;
+  padding: 8px 14px 12px;
+  margin: 0;
+  background: #f3faf6;
+}
+
+.feedback-link {
+  color: #0b6e4f;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.feedback-section {
+  text-align: center;
+  padding: 20px 16px 28px;
+  font-size: 0.95rem;
+}
+
