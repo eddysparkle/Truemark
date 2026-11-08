@@ -932,6 +932,12 @@ const checkNafdacBtn = $("checkNafdacBtn");
       runNafdacCheckAndShow(nafdac);
     });
   }
+
+
+// Optional: automatically prepare NAFDAC check when number was read
+// if (nafdac) runNafdacCheckAndShow(nafdac);
+
+
   
   if (saveButton) {
     saveButton.addEventListener("click", () => {
