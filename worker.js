@@ -1168,9 +1168,9 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/verify/nafdac' && method === 'POST') {
-    const body = await readJson(request);
-    return jsonResponse(await verifyNAFDAC(body, env));
-  }
+  const body = await readJson(request);
+  return verifyNAFDAC(body, env);
+}
 
   if (path === '/verify/son' && method === 'POST') {
     const body = await readJson(request);
