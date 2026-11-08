@@ -926,7 +926,13 @@ ${nafdacBlock}
   }
 
   const saveButton = $("saveCorrections");
-
+const checkNafdacBtn = $("checkNafdacBtn");
+  if (checkNafdacBtn && nafdac) {
+    checkNafdacBtn.addEventListener("click", () => {
+      runNafdacCheckAndShow(nafdac);
+    });
+  }
+  
   if (saveButton) {
     saveButton.addEventListener("click", () => {
       const values = [
