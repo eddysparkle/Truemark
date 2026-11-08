@@ -846,7 +846,7 @@ function renderAIResult(product, photoCount, errors = []) {
     <h3>TrueMark AI recognition results</h3>
 
     <p>
-      Analysed \( {photoCount} photo \){photoCount === 1 ? "" : "s"}.
+    Analysed  {photoCount} photo {photoCount === 1 ? "" : "s"}.
     </p>
 
     <p>
