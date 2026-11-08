@@ -1453,3 +1453,23 @@ displayHistory();
 console.log("TrueMark 5.1 initialised successfully.");
 
 });
+
+
+
+
+const manualNafdacBtn = $("manualNafdacBtn");
+const manualNafdacInput = $("manualNafdacInput");
+
+if (manualNafdacBtn && manualNafdacInput) {
+  manualNafdacBtn.addEventListener("click", () => {
+    const value = manualNafdacInput.value.trim();
+    if (!value) {
+      showToast("Enter a NAFDAC number first");
+      return;
+    }
+    openScanner();
+    runNafdacCheckAndShow(value);
+  });
+}
+
+          
