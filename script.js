@@ -869,9 +869,16 @@ function renderAIResult(product, photoCount, errors = []) {
       `).join("")}
     </div>
 
-    ${nafdacBlock}
+${nafdacBlock}
+
+    ${nafdac ? `
+      <button id="checkNafdacBtn" class="scan-again-button" type="button">
+        Check this NAFDAC number
+      </button>
+    ` : ""}
 
     ${!hasInformation ? `
+    
       <div class="verification-warning">
         <strong>Limited information extracted</strong>
         <p>
