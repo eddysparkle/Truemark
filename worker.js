@@ -818,12 +818,76 @@ async function configuredRegulatorCheck(body, env, config) {
   }
 }
 
+function normalizeNafdacNumber(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/NAFDAC(REG)?\.?(NO|NUMBER)?[:.]?/gi, '')
+    .replace(/[^A-Z0-9\-]/g, '')
+    .trim();
+}
+
+function isLikelyNafdacFormat(value) {
+  const n = normalizeNafdacNumber(value);
+  if (!n || n.length < 4 || n.length > 24) return false;
+  return /^(?:[A-Z]\d{1,2}-)?\d{2,6}(?:-\d{1,6})?[A-Z]?$/.test(n) ||
+         /^\d{2,8}$/.test(n);
+}
+
 async function verifyNAFDAC(body, env) {
-  return configuredRegulatorCheck(body, env, {
-    name: 'NAFDAC',
-    urlVariable: 'NAFDAC_API_URL',
-    keyVariable: 'NAFDAC_API_KEY',
-    officialUrl: 'https://nafdac.gov.ng/'
+  const raw =
+    body?.nafdac_number ||
+    body?.registration_number ||
+    body?.number ||
+    body?.certificate_number ||
+    '';
+
+  const nafdac = normalizeNafdacNumber(raw);
+
+  if (!nafdac) {
+    return jsonResponse({
+      success: false,
+      status: 'no_number',
+      error: 'Provide a NAFDAC number.'
+    }, 400);
+  }
+
+  // If you later get an authorised API, keep using it when configured
+  if (env.NAFDAC_API_URL && env.NAFDAC_API_KEY) {
+    return configuredRegulatorCheck(body, env, {
+      name: 'NAFDAC',
+      urlVariable: 'NAFDAC_API_URL',
+      keyVariable: 'NAFDAC_API_KEY',
+      officialUrl: 'https://registration.nafdac.gov.ng/'
+    });
+  }
+
+  const format_valid = isLikelyNafdacFormat(nafdac);
+
+  return jsonResponse({
+    success: true,
+    status: format_valid ? 'official_check_required' : 'format_uncertain',
+    nafdac_number: nafdac,
+    format_valid,
+    title: format_valid
+      ? 'NAFDAC number ready to check'
+      : 'NAFDAC number needs review',
+    message: format_valid
+      ? 'TrueMark prepared this registration number for an official check. Confirm it on NAFDAC channels. A registration match does not prove the physical item is genuine.'
+      : 'This value may not match a typical NAFDAC number format. Confirm the digits on the pack, then check on official NAFDAC channels.',
+    official_links: {
+      napams: 'https://registration.nafdac.gov.ng/',
+      greenbook: 'https://greenbook.nafdac.gov.ng/'
+    },
+    how_to_check: [
+      'Open NAPAMS → Verify Product',
+      'Enter the number exactly as printed (often without spaces)',
+      'Compare product name and manufacturer with the pack',
+      'For medicines, also search Greenbook by number or product name'
+    ],
+    disclaimer:
+      'TrueMark does not claim live automated access to NAFDAC private systems. Official confirmation is done on NAFDAC portals. Registration evidence is not pack authenticity certification.',
+    checked_at: new Date().toISOString()
   });
 }
 
