@@ -1266,6 +1266,165 @@ if (section) {
 
 }
 
+
+
+
+
+
+
+
+const NAFDAC_VERIFY_URL =
+  "https://truemark-ai.edialeeghonghon.workers.dev/verify/nafdac";
+
+async function verifyNafdacOnTrueMark(nafdacNumber) {
+  const response = await fetch(NAFDAC_VERIFY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      nafdac_number: String(nafdacNumber || "").trim()
+    })
+  });
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Invalid response from TrueMark NAFDAC check.");
+  }
+
+  if (!response.ok || data.success === false) {
+    throw new Error(data.error || data.message || "NAFDAC check failed.");
+  }
+
+  return data;
+}
+
+async function runNafdacCheckAndShow(nafdacNumber) {
+  if (!scanResult) return;
+
+  scanResult.innerHTML = `
+    <h3>Checking NAFDAC number…</h3>
+    <p>${escapeHTML(String(nafdacNumber || ""))}</p>
+  `;
+  scanResult.hidden = false;
+
+  try {
+    const data = await verifyNafdacOnTrueMark(nafdacNumber);
+    renderNafdacCheckResult(data);
+    saveScan(
+      data.nafdac_number || nafdacNumber,
+      data.title || "NAFDAC check",
+      "TrueMark NAFDAC"
+    );
+  } catch (error) {
+    scanResult.innerHTML = `
+      <h3>NAFDAC check could not be completed</h3>
+      <p>${escapeHTML(error.message || "Network error")}</p>
+      <p>
+        You can still verify manually on
+        <a href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">NAPAMS</a>
+        or
+        <a href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Greenbook</a>.
+      </p>
+      <button id="scanAgain" class="scan-again-button" type="button">Scan another product</button>
+    `;
+    addScanAgainButton();
+  }
+}
+
+function renderNafdacCheckResult(data) {
+  if (!scanResult) return;
+
+  const number = data.nafdac_number || "";
+  const steps = Array.isArray(data.how_to_check) ? data.how_to_check : [];
+  const napams = data.official_links?.napams || "https://registration.nafdac.gov.ng/";
+  const greenbook = data.official_links?.greenbook || "https://greenbook.nafdac.gov.ng/";
+
+  scanResult.innerHTML = `
+    <h3>${escapeHTML(data.title || "NAFDAC check")}</h3>
+
+    <p>
+      <strong>Status:</strong> ${escapeHTML(data.status || "official_check_required")}
+    </p>
+
+    <div class="verification-warning" style="border-left:4px solid #0b6e4f;">
+      <strong>NAFDAC number</strong>
+      <p style="font-size:1.25rem;font-weight:700;letter-spacing:0.03em;">
+        ${escapeHTML(number)}
+      </p>
+      <p>${escapeHTML(data.message || "")}</p>
+    </div>
+
+    <div class="product-details">
+      <strong>How to complete the official check</strong>
+      <ol>
+        \( {steps.map((step) => `<li> \){escapeHTML(step)}</li>`).join("")}
+      </ol>
+    </div>
+
+    <p style="display:flex;flex-direction:column;gap:8px;">
+      <button id="copyNafdacBtn" class="scan-again-button" type="button">
+        Copy NAFDAC number
+      </button>
+      <a
+        class="scan-again-button"
+        style="text-align:center;text-decoration:none;"
+        href="${escapeHTML(napams)}"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Open NAPAMS Verify Product
+      </a>
+      <a
+        class="scan-again-button"
+        style="text-align:center;text-decoration:none;"
+        href="${escapeHTML(greenbook)}"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Open NAFDAC Greenbook
+      </a>
+    </p>
+
+    <div class="verification-warning">
+      <strong>Registration is not authenticity</strong>
+      <p>
+        ${escapeHTML(
+          data.disclaimer ||
+            "A registration record does not prove this physical item is genuine."
+        )}
+      </p>
+    </div>
+
+    <button id="scanAgain" class="scan-again-button" type="button">
+      Scan another product
+    </button>
+  `;
+
+  scanResult.hidden = false;
+
+  const copyBtn = $("copyNafdacBtn");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(number);
+        showToast("NAFDAC number copied");
+      } catch {
+        showToast("Copy failed — select the number manually");
+      }
+    });
+  }
+
+  addScanAgainButton();
+
+  if (scannerStatus) {
+    scannerStatus.textContent =
+      "NAFDAC number ready. Complete the official check on NAFDAC portals.";
+  }
+}
+
+  
+
 /* =========================
 INITIALISE TRUEMARK
 ========================= */
