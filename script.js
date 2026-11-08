@@ -1376,9 +1376,8 @@ function renderNafdacCheckResult(data) {
 
     <div class="product-details">
       <strong>How to complete the official check</strong>
-<ol>
-        \( {steps.map((step) => `<li> \){escapeHTML(step)}</li>`).join("")}
-      </ol>
+      
+<ol> \( {steps.map((step) => `<li> \){escapeHTML(step)}</li>`).join("")} </ol>
 
       
     </div>
