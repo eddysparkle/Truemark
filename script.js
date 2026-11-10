@@ -846,7 +846,7 @@ function renderAIResult(product, photoCount, errors = []) {
     <h3>TrueMark AI recognition results</h3>
 
     <p>
-    Analysed  {photoCount} photo {photoCount === 1 ? "" : "s"}.
+    Analysed ${photoCount} photo${photoCount === 1 ? "" : "s"}.
     </p>
 
     <p>
@@ -1356,70 +1356,40 @@ function renderNafdacCheckResult(data) {
 
   const number = data.nafdac_number || "";
   const steps = Array.isArray(data.how_to_check) ? data.how_to_check : [];
-  const napams = data.official_links?.napams || "https://registration.nafdac.gov.ng/";
-  const greenbook = data.official_links?.greenbook || "https://greenbook.nafdac.gov.ng/";
+  const napams = (data.official_links && data.official_links.napams)
+    ? data.official_links.napams
+    : "https://registration.nafdac.gov.ng/";
+  const greenbook = (data.official_links && data.official_links.greenbook)
+    ? data.official_links.greenbook
+    : "https://greenbook.nafdac.gov.ng/";
 
-  scanResult.innerHTML = `
-    <h3>${escapeHTML(data.title || "NAFDAC check")}</h3>
+  let stepsHtml = "";
+  for (let i = 0; i < steps.length; i++) {
+    stepsHtml += "<li>" + escapeHTML(steps[i]) + "</li>";
+  }
 
-    <p>
-      <strong>Status:</strong> ${escapeHTML(data.status || "official_check_required")}
-    </p>
-
-    <div class="verification-warning" style="border-left:4px solid #0b6e4f;">
-      <strong>NAFDAC number</strong>
-      <p style="font-size:1.25rem;font-weight:700;letter-spacing:0.03em;">
-        ${escapeHTML(number)}
-      </p>
-      <p>${escapeHTML(data.message || "")}</p>
-    </div>
-
-    <div class="product-details">
-      <strong>How to complete the official check</strong>
-      
-<ol> {steps.map((step) => `<li> {escapeHTML(step)}</li>`).join("")} </ol>
-
-      
-    </div>
-
-    <p style="display:flex;flex-direction:column;gap:8px;">
-      <button id="copyNafdacBtn" class="scan-again-button" type="button">
-        Copy NAFDAC number
-      </button>
-      <a
-        class="scan-again-button"
-        style="text-align:center;text-decoration:none;"
-        href="${escapeHTML(napams)}"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Open NAPAMS Verify Product
-      </a>
-      <a
-        class="scan-again-button"
-        style="text-align:center;text-decoration:none;"
-        href="${escapeHTML(greenbook)}"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Open NAFDAC Greenbook
-      </a>
-    </p>
-
-    <div class="verification-warning">
-      <strong>Registration is not authenticity</strong>
-      <p>
-        ${escapeHTML(
-          data.disclaimer ||
-            "A registration record does not prove this physical item is genuine."
-        )}
-      </p>
-    </div>
-
-    <button id="scanAgain" class="scan-again-button" type="button">
-      Scan another product
-    </button>
-  `;
+  scanResult.innerHTML =
+    "<h3>" + escapeHTML(data.title || "NAFDAC check") + "</h3>" +
+    "<p><strong>Status:</strong> " + escapeHTML(data.status || "official_check_required") + "</p>" +
+    '<div class="verification-warning" style="border-left:4px solid #0b6e4f;">' +
+      "<strong>NAFDAC number</strong>" +
+      '<p style="font-size:1.25rem;font-weight:700;">' + escapeHTML(number) + "</p>" +
+      "<p>" + escapeHTML(data.message || "") + "</p>" +
+    "</div>" +
+    '<div class="product-details">' +
+      "<strong>How to complete the official check</strong>" +
+      "<ol>" + stepsHtml + "</ol>" +
+    "</div>" +
+    '<p style="display:flex;flex-direction:column;gap:8px;">' +
+      '<button id="copyNafdacBtn" class="scan-again-button" type="button">Copy NAFDAC number</button>' +
+      '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="' + escapeHTML(napams) + '" target="_blank" rel="noopener noreferrer">Open NAPAMS Verify Product</a>' +
+      '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="' + escapeHTML(greenbook) + '" target="_blank" rel="noopener noreferrer">Open NAFDAC Greenbook</a>' +
+    "</p>" +
+    '<div class="verification-warning">' +
+      "<strong>Registration is not authenticity</strong>" +
+      "<p>" + escapeHTML(data.disclaimer || "A registration record does not prove this physical item is genuine.") + "</p>" +
+    "</div>" +
+    '<button id="scanAgain" class="scan-again-button" type="button">Scan another product</button>';
 
   scanResult.hidden = false;
 
@@ -1445,18 +1415,6 @@ function renderNafdacCheckResult(data) {
 
   
 
-/* =========================
-INITIALISE TRUEMARK
-========================= */
-
-displayHistory();
-
-console.log("TrueMark 5.1 initialised successfully.");
-
-});
-
-
-
 
 const manualNafdacBtn = $("manualNafdacBtn");
 const manualNafdacInput = $("manualNafdacInput");
@@ -1473,4 +1431,11 @@ if (manualNafdacBtn && manualNafdacInput) {
   });
 }
 
-          
+/* =========================
+INITIALISE TRUEMARK
+========================= */
+displayHistory();
+
+console.log("TrueMark 5.1 initialised successfully.");
+
+});
