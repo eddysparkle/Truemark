@@ -1229,25 +1229,262 @@ document.querySelectorAll(".category-card").forEach(card => {
   });
 });
 
+const SEARCH_URL =
+  "https://truemark-ai.edialeeghonghon.workers.dev/products/search";
+
+function looksLikeBarcode(value) {
+  const v = String(value || "").replace(/\s+/g, "");
+  return /^\d{8,14}$/.test(v);
+}
+
+function looksLikeNafdac(value) {
+  const v = String(value || "")
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .replace(/NAFDAC(REG)?\.?(NO|NUMBER)?[:.]?/g, "");
+  return /^(?:[A-Z]\d{1,2}-)?\d{2,6}(?:-\d{1,6})?[A-Z]?$/.test(v);
+}
+
+async function searchProductsByName(query) {
+  const q = String(query || "").trim();
+  if (!q) return [];
+
+  const results = [];
+
+  try {
+    const response = await fetch(
+      SEARCH_URL + "?q=" + encodeURIComponent(q),
+      { method: "GET" }
+    );
+    const data = await response.json();
+    const list = Array.isArray(data.products)
+      ? data.products
+      : Array.isArray(data.results)
+      ? data.results
+      : [];
+
+    list.forEach((item) => {
+      results.push({
+        product_name: item.name || item.product_name || "",
+        brand: item.brand || item.brands || "",
+        category: item.category || item.categories || "",
+        barcode: item.barcode || item.code || "",
+        image_url: item.image_url || item.image_front_url || "",
+        source: "TrueMark index"
+      });
+    });
+  } catch (error) {
+    console.warn("TrueMark name search:", error);
+  }
+
+  try {
+    const offUrl =
+      "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" +
+      encodeURIComponent(q) +
+      "&search_simple=1&action=process&json=1&page_size=10";
+
+    const response = await fetch(offUrl);
+    const data = await response.json();
+    const list = Array.isArray(data.products) ? data.products : [];
+
+    list.forEach((item) => {
+      const name = item.product_name || item.generic_name || "";
+      if (!name) return;
+      results.push({
+        product_name: name,
+        brand: item.brands || "",
+        category: item.categories || "",
+        barcode: item.code || "",
+        image_url: item.image_front_small_url || item.image_url || "",
+        source: "Open Food Facts"
+      });
+    });
+  } catch (error) {
+    console.warn("Open Food Facts name search:", error);
+  }
+
+  const seen = new Set();
+  const unique = [];
+  results.forEach((item) => {
+    const key = (
+      (item.barcode || "") +
+      "|" +
+      (item.product_name || "").toLowerCase()
+    ).trim();
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push(item);
+  });
+
+  return unique.slice(0, 15);
+}
+
+function showNameSearchResults(query, products) {
+  if (!scanResult) return;
+
+  openScanner();
+
+  if (!products.length) {
+    scanResult.innerHTML =
+      "<h3>No catalogue match for this name</h3>" +
+      "<p>Search: <strong>" + escapeHTML(query) + "</strong></p>" +
+      '<div class="verification-warning">' +
+        "<strong>This does not mean the product is fake</strong>" +
+        "<p>TrueMark could not find this name in the connected catalogues. Coverage is limited and growing. Next step: scan the barcode or photograph the product label.</p>" +
+      "</div>" +
+      '<button id="scanAgain" class="scan-again-button" type="button">Photograph product label</button>';
+    scanResult.hidden = false;
+    if (scannerStatus) {
+      scannerStatus.textContent =
+        "No name match. Label photo or barcode scan is the best next step.";
+    }
+    addScanAgainButton(() => {
+      if (labelImageInput) labelImageInput.click();
+    }, "Photograph product label");
+    saveScan(query, "No name match found", "Name search");
+    return;
+  }
+
+  const cards = products
+    .map((item, index) => {
+      const title = item.product_name || "Unnamed product";
+      const meta = [item.brand, item.category, item.barcode]
+        .filter(Boolean)
+        .join(" · ");
+      const img = item.image_url
+        ? '<img src="' + escapeHTML(item.image_url) + '" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:8px;">'
+        : "";
+      return (
+        '<button type="button" class="history-item name-search-result" data-search-index="' +
+        index +
+        '" style="width:100%;text-align:left;cursor:pointer;">' +
+        '<div style="display:flex;gap:10px;align-items:center;">' +
+        img +
+        "<div><strong>" +
+        escapeHTML(title) +
+        "</strong><small>" +
+        escapeHTML(meta || item.source || "Catalogue match") +
+        "</small></div></div></button>"
+      );
+    })
+    .join("");
+
+  scanResult.innerHTML =
+    "<h3>Search results</h3>" +
+    "<p>Showing catalogue matches for <strong>" +
+    escapeHTML(query) +
+    "</strong>. This is not a full list of every product in Nigeria.</p>" +
+    '<div class="history-list" style="max-height:50vh;overflow:auto;">' +
+    cards +
+    "</div>" +
+    '<div class="verification-warning">' +
+    "<strong>Authenticity not confirmed</strong>" +
+    "<p>A catalogue name match helps identify a product record. It does not prove a physical item is genuine.</p>" +
+    "</div>" +
+    '<button id="scanAgain" class="scan-again-button" type="button">Scan a product instead</button>';
+
+  scanResult.hidden = false;
+
+  if (scannerStatus) {
+    scannerStatus.textContent =
+      products.length + " catalogue match(es) found.";
+  }
+
+  scanResult.querySelectorAll("[data-search-index]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const index = Number(btn.getAttribute("data-search-index"));
+      const item = products[index];
+      if (!item) return;
+
+      if (item.barcode && looksLikeBarcode(item.barcode)) {
+        lookupProduct(item.barcode);
+        return;
+      }
+
+      displayProduct(
+        {
+          product_name: item.product_name,
+          brands: item.brand,
+          categories: item.category,
+          quantity: "",
+          countries: "",
+          manufacturing_places: "",
+          image_url: item.image_url
+        },
+        item.barcode || query,
+        [{ name: item.source || "Catalogue" }]
+      );
+      saveScan(
+        item.barcode || query,
+        item.product_name || "Name search match",
+        "Name search"
+      );
+    });
+  });
+
+  addScanAgainButton();
+  saveScan(query, products[0].product_name || "Name search", "Name search");
+}
+
+async function handleProductSearch(query) {
+  const q = String(query || "").trim();
+  if (!q) {
+    showToast("Enter a product name, barcode, or NAFDAC number.");
+    return;
+  }
+
+  if (looksLikeBarcode(q)) {
+    openScanner();
+    await lookupProduct(q.replace(/\s+/g, ""));
+    return;
+  }
+
+  if (looksLikeNafdac(q)) {
+    openScanner();
+    await runNafdacCheckAndShow(q);
+    return;
+  }
+
+  if (scannerStatus) {
+    scannerStatus.textContent = "Searching product catalogues...";
+  }
+  showToast("Searching catalogues...");
+
+  openScanner();
+  if (scanResult) {
+    scanResult.hidden = false;
+    scanResult.innerHTML =
+      "<h3>Searching...</h3><p>" + escapeHTML(q) + "</p>";
+  }
+
+  try {
+    const products = await searchProductsByName(q);
+    showNameSearchResults(q, products);
+  } catch (error) {
+    console.error("Name search error:", error);
+    if (scanResult) {
+      scanResult.innerHTML =
+        "<h3>Search could not be completed</h3>" +
+        "<p>" +
+        escapeHTML(error.message || "Network error") +
+        "</p>" +
+        "<p>Try scanning a barcode or photographing the label.</p>" +
+        '<button id="scanAgain" class="scan-again-button" type="button">Scan a product</button>';
+      scanResult.hidden = false;
+      addScanAgainButton();
+    }
+  }
+}
+
 const searchForm = $("searchForm");
 
 if (searchForm) {
-searchForm.addEventListener("submit", event => {
-event.preventDefault();
-
-const input = $("productSearch");  
-  const query = input ? input.value.trim() : "";  
-
-  if (!query) {  
-    showToast("Enter a product name or barcode.");  
-    return;  
-  }  
-
-  showToast(  
-    "Product search will be connected in a later stage."  
-  );  
-});
-
+  searchForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = $("productSearch");
+    const query = input ? input.value.trim() : "";
+    handleProductSearch(query);
+  });
 }
 
 document.querySelectorAll(".nav-item[data-target]").forEach(button => {
