@@ -1,5 +1,5 @@
 /* =========================================================
-TRUEMARK 5.2 — AI PRODUCT RECOGNITION
+TRUEMARK 5.3 — AI PRODUCT RECOGNITION
 Cloudflare Workers AI + Barcode Lookup
 
 IMPORTANT:
@@ -1532,11 +1532,18 @@ function showNameSearchResults(query, products) {
   const cards = products
     .map((item, index) => {
       const title = item.product_name || "Unnamed product";
-      const meta = [item.brand, item.category, item.barcode, item.nafdac_number ? ("NAFDAC " + item.nafdac_number) : ""]
+      const meta = [
+        item.brand,
+        item.category,
+        item.barcode,
+        item.nafdac_number ? "NAFDAC " + item.nafdac_number : ""
+      ]
         .filter(Boolean)
         .join(" · ");
       const img = item.image_url
-        ? '<img src="' + escapeHTML(item.image_url) + '" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:8px;">'
+        ? '<img src="' +
+          escapeHTML(item.image_url) +
+          '" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:8px;">'
         : "";
       return (
         '<button type="button" class="history-item name-search-result" data-search-index="' +
@@ -1564,6 +1571,17 @@ function showNameSearchResults(query, products) {
     '<div class="verification-warning">' +
     "<strong>Authenticity not confirmed</strong>" +
     "<p>A catalogue name match helps identify a product record. It does not prove a physical item is genuine.</p>" +
+    "<p><strong>What you should do next</strong></p>" +
+    "<ol>" +
+    "<li>Compare name, strength and manufacturer with the physical pack.</li>" +
+    "<li>Find the NAFDAC number on the pack and verify it on NAPAMS or Greenbook.</li>" +
+    "<li>If the pack has a MAS scratch code, use the official SMS check.</li>" +
+    "<li>Avoid packs with no NAFDAC number, mismatched details or suspicious packaging.</li>" +
+    "</ol>" +
+    '<p style="display:flex;flex-direction:column;gap:8px;">' +
+    '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
+    '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open Greenbook</a>' +
+    "</p>" +
     "</div>" +
     '<button id="scanAgain" class="scan-again-button" type="button">Scan a product instead</button>';
 
@@ -1595,7 +1613,7 @@ function showNameSearchResults(query, products) {
           product_name: item.product_name,
           brands: item.brand,
           categories: item.category,
-          quantity: "",
+          quantity: item.strength_or_size || "",
           countries: "",
           manufacturing_places: "",
           image_url: item.image_url
@@ -1862,6 +1880,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 5.2 initialised successfully.");
+console.log("TrueMark 5.3 initialised successfully.");
 
 });
