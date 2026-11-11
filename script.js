@@ -1251,6 +1251,50 @@ async function searchProductsByName(query) {
 
   const results = [];
 
+  function pushItem(item, source) {
+    const product_name = item.product_name || item.generic_name || item.name || "";
+    if (!product_name) return;
+    results.push({
+      product_name: product_name,
+      brand: item.brands || item.brand || "",
+      category: item.categories || item.category || "",
+      barcode: item.code || item.barcode || "",
+      image_url:
+        item.image_front_small_url ||
+        item.image_url ||
+        item.image_front_url ||
+        "",
+      source: source
+    });
+  }
+
+  async function searchOpenFacts(baseUrl, sourceName) {
+    try {
+      const url =
+        baseUrl +
+        "/cgi/search.pl?search_terms=" +
+        encodeURIComponent(q) +
+        "&search_simple=1&action=process&json=1&page_size=10";
+
+      const response = await fetch(url);
+      const text = await response.text();
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.warn(sourceName + " returned non-JSON");
+        return;
+      }
+
+      const list = Array.isArray(data.products) ? data.products : [];
+      list.forEach((item) => pushItem(item, sourceName));
+    } catch (error) {
+      console.warn(sourceName + " search failed:", error);
+    }
+  }
+
+  // 1) TrueMark Worker / D1
   try {
     const response = await fetch(
       SEARCH_URL + "?q=" + encodeURIComponent(q),
@@ -1277,31 +1321,23 @@ async function searchProductsByName(query) {
     console.warn("TrueMark name search:", error);
   }
 
-  try {
-    const offUrl =
-      "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" +
-      encodeURIComponent(q) +
-      "&search_simple=1&action=process&json=1&page_size=10";
+  // 2) Open Beauty Facts (cosmetics, hair, minoxidil, creams)
+  await searchOpenFacts(
+    "https://world.openbeautyfacts.org",
+    "Open Beauty Facts"
+  );
 
-    const response = await fetch(offUrl);
-    const data = await response.json();
-    const list = Array.isArray(data.products) ? data.products : [];
+  // 3) Open Food Facts (food & drinks)
+  await searchOpenFacts(
+    "https://world.openfoodfacts.org",
+    "Open Food Facts"
+  );
 
-    list.forEach((item) => {
-      const name = item.product_name || item.generic_name || "";
-      if (!name) return;
-      results.push({
-        product_name: name,
-        brand: item.brands || "",
-        category: item.categories || "",
-        barcode: item.code || "",
-        image_url: item.image_front_small_url || item.image_url || "",
-        source: "Open Food Facts"
-      });
-    });
-  } catch (error) {
-    console.warn("Open Food Facts name search:", error);
-  }
+  // 4) Open Products Facts (broader packaged goods)
+  await searchOpenFacts(
+    "https://world.openproductsfacts.org",
+    "Open Products Facts"
+  );
 
   const seen = new Set();
   const unique = [];
@@ -1309,9 +1345,9 @@ async function searchProductsByName(query) {
     const key = (
       (item.barcode || "") +
       "|" +
-      (item.product_name || "").toLowerCase()
+      String(item.product_name || "").toLowerCase()
     ).trim();
-    if (seen.has(key)) return;
+    if (!item.product_name || seen.has(key)) return;
     seen.add(key);
     unique.push(item);
   });
