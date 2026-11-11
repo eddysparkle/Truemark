@@ -1,5 +1,5 @@
 /* =========================================================
-TRUEMARK 5.1 — AI PRODUCT RECOGNITION
+TRUEMARK 5.2 — AI PRODUCT RECOGNITION
 Cloudflare Workers AI + Barcode Lookup
 
 IMPORTANT:
@@ -1229,6 +1229,140 @@ document.querySelectorAll(".category-card").forEach(card => {
   });
 });
 
+
+/* Starter Nigerian index — expand over time. Confirm NAFDAC numbers on the physical pack. */
+const NIGERIAN_STARTER_INDEX = [
+  {
+    product_name: "Lonart Tablets 20mg/120mg",
+    brand: "Lonart",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "04-8969",
+    strength_or_size: "20mg/120mg",
+    notes: "Artemether/Lumefantrine antimalarial. Confirm number on pack.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "Lonart DS Tablets 80mg/480mg",
+    brand: "Lonart",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "04-9927",
+    strength_or_size: "80mg/480mg",
+    notes: "Double-strength Lonart. Confirm number on pack.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "Lonart Suspension 20/120",
+    brand: "Lonart",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "04-8970",
+    strength_or_size: "20mg/120mg suspension",
+    notes: "Paediatric suspension. Confirm number on pack.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "Coartem Tablets 20mg/120mg",
+    brand: "Coartem",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "04-3275",
+    strength_or_size: "20mg/120mg",
+    notes: "Artemether/Lumefantrine. Confirm status on Greenbook.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "P-Alaxin Tablets",
+    brand: "P-Alaxin",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "",
+    strength_or_size: "",
+    notes: "Antimalarial. Use NAFDAC number on pack for official check.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "Amatem Forte",
+    brand: "Amatem",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "A4-3489",
+    strength_or_size: "",
+    notes: "Antimalarial. Confirm number on pack.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "Lumartem Tablets 20mg/120mg",
+    brand: "Lumartem",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "A4-4845",
+    strength_or_size: "20mg/120mg",
+    notes: "Antimalarial. Confirm number on pack.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "Nixoderm Ointment",
+    brand: "Nixoderm",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "04-3294",
+    strength_or_size: "15g",
+    notes: "Skin ointment. Confirm number on pack.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "Minoxidil Topical Solution 2%",
+    brand: "",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "",
+    strength_or_size: "2%",
+    notes: "Hair regrowth. Confirm brand and NAFDAC on pack.",
+    source: "TrueMark starter index"
+  },
+  {
+    product_name: "Minoxidil Topical Solution 5%",
+    brand: "",
+    category: "Health & medicines",
+    barcode: "",
+    nafdac_number: "",
+    strength_or_size: "5%",
+    notes: "Hair regrowth. Confirm brand and NAFDAC on pack.",
+    source: "TrueMark starter index"
+  }
+];
+
+function searchStarterIndex(query) {
+  const q = String(query || "").toLowerCase().trim();
+  if (q.length < 2) return [];
+  return NIGERIAN_STARTER_INDEX.filter((item) => {
+    const hay = [
+      item.product_name,
+      item.brand,
+      item.category,
+      item.nafdac_number,
+      item.strength_or_size,
+      item.notes
+    ]
+      .join(" ")
+      .toLowerCase();
+    return hay.indexOf(q) !== -1;
+  }).map((item) => ({
+    product_name: item.product_name,
+    brand: item.brand,
+    category: item.category,
+    barcode: item.barcode || "",
+    image_url: "",
+    nafdac_number: item.nafdac_number || "",
+    strength_or_size: item.strength_or_size || "",
+    notes: item.notes || "",
+    source: item.source || "TrueMark starter index"
+  }));
+}
+
+
 const SEARCH_URL =
   "https://truemark-ai.edialeeghonghon.workers.dev/products/search";
 
@@ -1251,6 +1385,11 @@ async function searchProductsByName(query) {
 
   const results = [];
 
+  // 0) Local starter Nigerian index (medicines & common items)
+  searchStarterIndex(q).forEach((item) => {
+    results.push(item);
+  });
+
   function pushItem(item, source) {
     const product_name = item.product_name || item.generic_name || item.name || "";
     if (!product_name) return;
@@ -1264,6 +1403,7 @@ async function searchProductsByName(query) {
         item.image_url ||
         item.image_front_url ||
         "",
+      nafdac_number: item.nafdac_number || "",
       source: source
     });
   }
@@ -1277,11 +1417,11 @@ async function searchProductsByName(query) {
         "&search_simple=1&action=process&json=1&page_size=10";
 
       const response = await fetch(url);
-      const text = await response.text();
+      const responseText = await response.text();
 
       let data;
       try {
-        data = JSON.parse(text);
+        data = JSON.parse(responseText);
       } catch {
         console.warn(sourceName + " returned non-JSON");
         return;
@@ -1314,6 +1454,7 @@ async function searchProductsByName(query) {
         category: item.category || item.categories || "",
         barcode: item.barcode || item.code || "",
         image_url: item.image_url || item.image_front_url || "",
+        nafdac_number: item.nafdac_number || item.registration_number || "",
         source: "TrueMark index"
       });
     });
@@ -1321,19 +1462,19 @@ async function searchProductsByName(query) {
     console.warn("TrueMark name search:", error);
   }
 
-  // 2) Open Beauty Facts (cosmetics, hair, minoxidil, creams)
+  // 2) Open Beauty Facts
   await searchOpenFacts(
     "https://world.openbeautyfacts.org",
     "Open Beauty Facts"
   );
 
-  // 3) Open Food Facts (food & drinks)
+  // 3) Open Food Facts
   await searchOpenFacts(
     "https://world.openfoodfacts.org",
     "Open Food Facts"
   );
 
-  // 4) Open Products Facts (broader packaged goods)
+  // 4) Open Products Facts
   await searchOpenFacts(
     "https://world.openproductsfacts.org",
     "Open Products Facts"
@@ -1345,14 +1486,16 @@ async function searchProductsByName(query) {
     const key = (
       (item.barcode || "") +
       "|" +
-      String(item.product_name || "").toLowerCase()
+      String(item.product_name || "").toLowerCase() +
+      "|" +
+      String(item.nafdac_number || "")
     ).trim();
     if (!item.product_name || seen.has(key)) return;
     seen.add(key);
     unique.push(item);
   });
 
-  return unique.slice(0, 15);
+  return unique.slice(0, 20);
 }
 
 function showNameSearchResults(query, products) {
@@ -1366,9 +1509,14 @@ function showNameSearchResults(query, products) {
       "<p>Search: <strong>" + escapeHTML(query) + "</strong></p>" +
       '<div class="verification-warning">' +
         "<strong>This does not mean the product is fake</strong>" +
-        "<p>TrueMark could not find this name in the connected catalogues. Coverage is limited and growing. Next step: scan the barcode or photograph the product label.</p>" +
+        "<p>TrueMark could not find this name in the starter index or public catalogues. Nigerian medicines are often missing from global catalogues.</p>" +
+        "<p><strong>Best next steps for medicines:</strong> enter the NAFDAC number from the pack, open Greenbook/NAPAMS, scan a barcode if present, or photograph the label.</p>" +
       "</div>" +
-      '<button id="scanAgain" class="scan-again-button" type="button">Photograph product label</button>';
+      '<p style="display:flex;flex-direction:column;gap:8px;">' +
+        '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAFDAC Greenbook</a>' +
+        '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
+        '<button id="scanAgain" class="scan-again-button" type="button">Photograph product label</button>' +
+      "</p>";
     scanResult.hidden = false;
     if (scannerStatus) {
       scannerStatus.textContent =
@@ -1384,7 +1532,7 @@ function showNameSearchResults(query, products) {
   const cards = products
     .map((item, index) => {
       const title = item.product_name || "Unnamed product";
-      const meta = [item.brand, item.category, item.barcode]
+      const meta = [item.brand, item.category, item.barcode, item.nafdac_number ? ("NAFDAC " + item.nafdac_number) : ""]
         .filter(Boolean)
         .join(" · ");
       const img = item.image_url
@@ -1434,6 +1582,11 @@ function showNameSearchResults(query, products) {
 
       if (item.barcode && looksLikeBarcode(item.barcode)) {
         lookupProduct(item.barcode);
+        return;
+      }
+
+      if (item.nafdac_number && String(item.nafdac_number).trim()) {
+        runNafdacCheckAndShow(item.nafdac_number);
         return;
       }
 
@@ -1709,6 +1862,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 5.1 initialised successfully.");
+console.log("TrueMark 5.2 initialised successfully.");
 
 });
