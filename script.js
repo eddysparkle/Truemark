@@ -1,5 +1,5 @@
 /* =========================================================
-TRUEMARK 5.5 — AI PRODUCT RECOGNITION
+TRUEMARK 5.6 — AI PRODUCT RECOGNITION
 Cloudflare Workers AI + Barcode Lookup
 
 IMPORTANT:
@@ -454,69 +454,95 @@ function showProductUnavailable(barcode, reason) {
 }
 
 function displayProduct(product, barcode, sources = []) {
-if (!scanResult) return;
+  if (!scanResult) return;
 
-const fields = [  
-  ["Product", product.product_name],  
-  ["Brand", product.brands],  
-  ["Category", product.categories],  
-  ["Quantity", product.quantity],  
-  ["Countries listed", product.countries],  
-  ["Manufacturing location", product.manufacturing_places],  
-  ["Barcode", barcode]  
-];  
+  const fields = [
+    ["Product", product.product_name],
+    ["Brand", product.brands],
+    ["Category", product.categories],
+    ["Quantity", product.quantity],
+    ["Countries listed", product.countries],
+    ["Manufacturing location", product.manufacturing_places],
+    ["Barcode", barcode]
+  ];
 
-const image = product.image_url || "";  
+  const image = product.image_url || "";
+  const buyQuery = (
+    product.product_name ||
+    product.brands ||
+    barcode ||
+    "product"
+  ).toString().trim();
 
-scanResult.innerHTML = `  
-  <span class="result-check">✓</span>  
-  <h3>Product information found</h3>  
+  const sourceNames = Array.isArray(sources) && sources.length
+    ? sources.map((s) => (s && s.name) || "Catalogue").filter(Boolean).join(", ")
+    : "Public catalogue";
 
-  ${image ? `  
-    <img  
-      src="${escapeHTML(image)}"  
-      alt="Product reference"  
-      style="width:140px;max-height:150px;object-fit:contain;margin:15px auto;display:block;"  
-    >  
-  ` : ""}  
+  let fieldsHtml = "";
+  fields.forEach(function (pair) {
+    fieldsHtml +=
+      "<p><strong>" +
+      escapeHTML(pair[0]) +
+      ":</strong> " +
+      escapeHTML(pair[1] || "Not provided") +
+      "</p>";
+  });
 
-  <div class="product-details">  
-    ${fields.map(([label, value]) => `  
-      <p>  
-        <strong>${label}:</strong>  
-        ${escapeHTML(value || "Not provided")}  
-      </p>  
-    `).join("")}  
-  </div>  
+  const imageHtml = image
+    ? '<img src="' +
+      escapeHTML(image) +
+      '" alt="Product reference" style="width:140px;max-height:150px;object-fit:contain;margin:15px auto;display:block;">'
+    : "";
 
-  <div class="verification-warning">  
-    <strong>Authenticity not confirmed</strong>  
-    <p>  
-      This database record helps identify a product type.  
-      It does not authenticate the physical item.  
-    </p>  
-  </div>  
+  scanResult.innerHTML =
+    '<span class="result-check">✓</span>' +
+    "<h3>Product information found</h3>" +
+    imageHtml +
+    '<div class="product-details">' +
+    fieldsHtml +
+    "</div>" +
+    '<div class="auth-card">' +
+      '<p class="auth-card-title">Authenticity not confirmed</p>' +
+      '<p class="auth-card-lead">This database record helps identify a product type. It does not authenticate the physical item in your hand.</p>' +
+      "<h4>What you should do next</h4>" +
+      '<ol class="auth-steps">' +
+        "<li>Compare name, brand and details with the physical pack.</li>" +
+        "<li>If a NAFDAC number is on the pack, verify it on NAPAMS or Greenbook.</li>" +
+        "<li>If there is a MAS scratch code, use the official SMS check.</li>" +
+        "<li>Buy only from sellers you trust after checking the pack.</li>" +
+      "</ol>" +
+      '<div class="auth-actions">' +
+        '<a class="scan-again-button" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
+        '<a class="scan-again-button" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open Greenbook</a>' +
+      "</div>" +
+      '<div class="buy-card">' +
+        '<p class="buy-card-title">Find where to buy</p>' +
+        '<div class="auth-actions">' +
+          '<a class="scan-again-button" href="https://www.google.com/search?q=' +
+            encodeURIComponent(buyQuery + " buy Nigeria") +
+            '" target="_blank" rel="noopener noreferrer">Find sellers on Google</a>' +
+          '<a class="scan-again-button" href="https://www.jumia.com.ng/catalog/?q=' +
+            encodeURIComponent(buyQuery) +
+            '" target="_blank" rel="noopener noreferrer">Search on Jumia</a>' +
+          '<a class="scan-again-button" href="https://www.konga.com/search?search=' +
+            encodeURIComponent(buyQuery) +
+            '" target="_blank" rel="noopener noreferrer">Search on Konga</a>' +
+        "</div>" +
+        '<p class="buy-note">TrueMark does not sell products. These links open store <strong>search results</strong> for this product name. They may not be the exact same SKU, brand variant, or seller. Always check the listing and the physical pack before paying.</p>' +
+      "</div>" +
+    "</div>" +
+    '<p class="result-note">Source: ' +
+    escapeHTML(sourceNames) +
+    ". Coverage may be incomplete.</p>" +
+    '<button id="scanAgain" class="scan-again-button" type="button">Scan another product</button>';
 
-  <p class="result-note">  
-    Source: Open Food Facts, a community-contributed database.  
-    Coverage and entries may be incomplete.  
-  </p>  
+  scanResult.hidden = false;
 
-  <button id="scanAgain"  
-    class="scan-again-button" type="button">  
-    Scan another product  
-  </button>  
-`;  
+  if (scannerStatus) {
+    scannerStatus.textContent = "Product information retrieved.";
+  }
 
-scanResult.hidden = false;  
-
-if (scannerStatus) {  
-  scannerStatus.textContent =  
-    "Product information retrieved.";  
-}  
-
-addScanAgainButton();
-
+  addScanAgainButton();
 }
 
 /* =========================
@@ -1916,6 +1942,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 5.5 initialised successfully.");
+console.log("TrueMark 5.6 initialised successfully.");
 
 });
