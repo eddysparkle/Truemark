@@ -1,5 +1,5 @@
 /* =========================================================
-TRUEMARK 5.4 — AI PRODUCT RECOGNITION
+TRUEMARK 5.5 — AI PRODUCT RECOGNITION
 Cloudflare Workers AI + Barcode Lookup
 
 IMPORTANT:
@@ -1503,35 +1503,40 @@ function showNameSearchResults(query, products) {
 
   openScanner();
 
-  const findSellersHtml =
-    '<p style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">' +
-    '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://www.google.com/search?q=' +
-    encodeURIComponent(query + " buy Nigeria") +
-    '" target="_blank" rel="noopener noreferrer">Find sellers on Google</a>' +
-    '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://www.jumia.com.ng/catalog/?q=' +
-    encodeURIComponent(query) +
-    '" target="_blank" rel="noopener noreferrer">Search on Jumia</a>' +
-    '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://www.konga.com/search?search=' +
-    encodeURIComponent(query) +
-    '" target="_blank" rel="noopener noreferrer">Search on Konga</a>' +
-    "</p>" +
-    '<p style="font-size:0.9rem;">TrueMark does not sell products. External store links are for finding sellers only. Always check the physical pack and NAFDAC details before paying.</p>';
-
   if (!products.length) {
     scanResult.innerHTML =
       "<h3>No catalogue match for this name</h3>" +
       "<p>Search: <strong>" + escapeHTML(query) + "</strong></p>" +
-      '<div class="verification-warning">' +
-      "<strong>This does not mean the product is fake</strong>" +
-      "<p>TrueMark could not find this name in the starter index or public catalogues. Nigerian medicines are often missing from global catalogues.</p>" +
-      "<p><strong>Best next steps for medicines:</strong> enter the NAFDAC number from the pack, open Greenbook/NAPAMS, scan a barcode if present, or photograph the label.</p>" +
-      "</div>" +
-      '<p style="display:flex;flex-direction:column;gap:8px;">' +
-      '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAFDAC Greenbook</a>' +
-      '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
-      '<button id="scanAgain" class="scan-again-button" type="button">Photograph product label</button>' +
-      "</p>" +
-      findSellersHtml;
+      '<div class="auth-card">' +
+        '<p class="auth-card-title">This does not mean the product is fake</p>' +
+        '<p class="auth-card-lead">TrueMark could not find this name in the starter index or public catalogues. Nigerian medicines are often missing from global catalogues.</p>' +
+        "<h4>Best next steps for medicines</h4>" +
+        '<ol class="auth-steps">' +
+          "<li>Enter the NAFDAC number from the pack.</li>" +
+          "<li>Open Greenbook or NAPAMS to check registration.</li>" +
+          "<li>Scan a barcode if present, or photograph the label.</li>" +
+        "</ol>" +
+        '<div class="auth-actions">' +
+          '<a class="scan-again-button" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAFDAC Greenbook</a>' +
+          '<a class="scan-again-button" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
+          '<button id="scanAgain" class="scan-again-button" type="button">Photograph product label</button>' +
+        "</div>" +
+        '<div class="buy-card">' +
+          '<p class="buy-card-title">Find where to buy</p>' +
+          '<div class="auth-actions">' +
+            '<a class="scan-again-button" href="https://www.google.com/search?q=' +
+              encodeURIComponent(query + " buy Nigeria") +
+              '" target="_blank" rel="noopener noreferrer">Find sellers on Google</a>' +
+            '<a class="scan-again-button" href="https://www.jumia.com.ng/catalog/?q=' +
+              encodeURIComponent(query) +
+              '" target="_blank" rel="noopener noreferrer">Search on Jumia</a>' +
+            '<a class="scan-again-button" href="https://www.konga.com/search?search=' +
+              encodeURIComponent(query) +
+              '" target="_blank" rel="noopener noreferrer">Search on Konga</a>' +
+          "</div>" +
+          '<p class="buy-note">TrueMark does not sell products. External links are for finding sellers only.</p>' +
+        "</div>" +
+      "</div>";
 
     scanResult.hidden = false;
     if (scannerStatus) {
@@ -1584,22 +1589,35 @@ function showNameSearchResults(query, products) {
     '<div class="history-list" style="max-height:50vh;overflow:auto;">' +
     cards +
     "</div>" +
-    '<div class="verification-warning">' +
-    "<strong>Authenticity not confirmed</strong>" +
-    "<p>A catalogue name match helps identify a product record. It does not prove a physical item is genuine.</p>" +
-    "<p><strong>What you should do next</strong></p>" +
-    "<ol>" +
-    "<li>Compare name, strength and manufacturer with the physical pack.</li>" +
-    "<li>Find the NAFDAC number on the pack and verify it on NAPAMS or Greenbook.</li>" +
-    "<li>If the pack has a MAS scratch code, use the official SMS check.</li>" +
-    "<li>Avoid packs with no NAFDAC number, mismatched details or suspicious packaging.</li>" +
-    "</ol>" +
-    '<p style="display:flex;flex-direction:column;gap:8px;">' +
-    '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
-    '<a class="scan-again-button" style="text-align:center;text-decoration:none;" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open Greenbook</a>' +
-    "</p>" +
-    "<p><strong>Find where to buy</strong></p>" +
-    findSellersHtml +
+    '<div class="auth-card">' +
+      '<p class="auth-card-title">Authenticity not confirmed</p>' +
+      '<p class="auth-card-lead">A catalogue name match helps identify a product record. It does not prove a physical item is genuine.</p>' +
+      "<h4>What you should do next</h4>" +
+      '<ol class="auth-steps">' +
+        "<li>Compare name, strength and manufacturer with the physical pack.</li>" +
+        "<li>Find the NAFDAC number on the pack and verify it on NAPAMS or Greenbook.</li>" +
+        "<li>If the pack has a MAS scratch code, use the official SMS check.</li>" +
+        "<li>Avoid packs with no NAFDAC number, mismatched details or suspicious packaging.</li>" +
+      "</ol>" +
+      '<div class="auth-actions">' +
+        '<a class="scan-again-button" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
+        '<a class="scan-again-button" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open Greenbook</a>' +
+      "</div>" +
+      '<div class="buy-card">' +
+        '<p class="buy-card-title">Find where to buy</p>' +
+        '<div class="auth-actions">' +
+          '<a class="scan-again-button" href="https://www.google.com/search?q=' +
+            encodeURIComponent(query + " buy Nigeria") +
+            '" target="_blank" rel="noopener noreferrer">Find sellers on Google</a>' +
+          '<a class="scan-again-button" href="https://www.jumia.com.ng/catalog/?q=' +
+            encodeURIComponent(query) +
+            '" target="_blank" rel="noopener noreferrer">Search on Jumia</a>' +
+          '<a class="scan-again-button" href="https://www.konga.com/search?search=' +
+            encodeURIComponent(query) +
+            '" target="_blank" rel="noopener noreferrer">Search on Konga</a>' +
+        "</div>" +
+        '<p class="buy-note">TrueMark does not sell products. External links are for finding sellers only. Check the pack and NAFDAC details before paying.</p>' +
+      "</div>" +
     "</div>" +
     '<button id="scanAgain" class="scan-again-button" type="button">Scan a product instead</button>';
 
@@ -1898,6 +1916,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 5.4 initialised successfully.");
+console.log("TrueMark 5.5 initialised successfully.");
 
 });
