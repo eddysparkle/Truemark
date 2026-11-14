@@ -5,23 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#087a50">
   <title>TrueMark — Scan Before You Buy</title>
-  <meta name="description" content="TrueMark helps consumers check product information and make informed purchasing decisions.">
+  <meta name="description" content="TrueMark helps consumers check product information and NAFDAC registration guidance before they buy.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-<link rel="manifest" href="manifest.json">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="TrueMark">
-<meta property="og:title" content="TrueMark — Scan Before You Buy">
-<meta property="og:description" content="Check product information and NAFDAC registration guidance before you buy.">
-<meta property="og:url" content="https://eddysparkle.github.io/Truemark/">
-<meta name="twitter:card" content="summary">
-  
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="TrueMark">
+  <meta property="og:title" content="TrueMark — Scan Before You Buy">
+  <meta property="og:description" content="Check product information and NAFDAC registration guidance before you buy.">
+  <meta property="og:url" content="https://eddysparkle.github.io/Truemark/">
+  <meta name="twitter:card" content="summary">
   <script src="https://unpkg.com/html5-qrcode" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
   <script src="verification.js" defer></script>
-<script src="script.js" defer></script>
+  <script src="script.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -31,29 +30,29 @@
     </a>
     <div class="profile-icon" aria-label="Profile">V</div>
   </header>
-  
-<div class="beta-banner" role="status">
-  <strong>TrueMark Beta</strong> —
-  Scan barcodes and labels for product information and official NAFDAC check links.
-  This does not prove a physical item is genuine. Feedback helps us improve.
-</div>
 
+  <div class="beta-banner" role="status">
+    <strong>TrueMark Beta</strong> —
+    Scan barcodes and labels for product information and official NAFDAC check links.
+    This does not prove a physical item is genuine. Feedback helps us improve.
+  </div>
 
-<p class="feedback-row">
-  <a
-    class="feedback-link"
-    href="mailto:successfulutomi@gmail.com?subject=TrueMark%20Beta%20Feedback"
-  >
-    Send beta feedback
-  </a>
-</p>
-  
-  
+  <p class="feedback-row">
+    <a
+      class="feedback-link"
+      href="mailto:successfulutomi@gmail.com?subject=TrueMark%20Beta%20Feedback"
+    >
+      Send beta feedback
+    </a>
+  </p>
+
   <main class="container">
     <section class="welcome-section" id="home">
       <p class="eyebrow">YOUR PRODUCT SAFETY COMPANION</p>
       <h1>Shop with confidence.</h1>
-      <p class="welcome-description">Check product information and make more informed purchasing decisions.</p>
+      <p class="welcome-description">
+        Check product information and make more informed purchasing decisions.
+      </p>
     </section>
 
     <section class="scan-card">
@@ -69,7 +68,12 @@
       <h2>Find a product</h2>
       <form id="searchForm" class="search-box">
         <span>⌕</span>
-        <input type="search" id="productSearch" placeholder="Search product name or barcode..." autocomplete="off">
+        <input
+          type="search"
+          id="productSearch"
+          placeholder="Search product name, barcode, or NAFDAC number..."
+          autocomplete="off"
+        >
         <button type="submit">Search</button>
       </form>
     </section>
@@ -96,13 +100,7 @@
         <h2>Recent activity</h2>
         <button id="viewHistory" type="button">View all</button>
       </div>
-      <div id="historyList" class="history-list">
-        <div class="empty-state">
-          <span class="empty-icon">▦</span>
-          <h3>No scans yet</h3>
-          <p>Products you scan will appear here.</p>
-        </div>
-      </div>
+      <div id="historyList" class="history-list"></div>
     </section>
 
     <section class="alert-card" id="alerts">
@@ -126,14 +124,16 @@
       </div>
 
       <div class="manual-nafdac">
-  <label for="manualNafdacInput">Enter NAFDAC number</label>
-  <input id="manualNafdacInput" type="text" placeholder="e.g. 04-3294" autocomplete="off">
-  <button id="manualNafdacBtn" type="button" class="scan-again-button">
-    Check NAFDAC number
-  </button>
-</div>
+        <label for="manualNafdacInput">Enter NAFDAC number</label>
+        <input id="manualNafdacInput" type="text" placeholder="e.g. 04-3294" autocomplete="off">
+        <button id="manualNafdacBtn" type="button" class="scan-again-button">
+          Check NAFDAC number
+        </button>
+      </div>
 
-      <p class="scanner-description">Choose barcode scanning for products with a barcode, or label scanning for products without one.</p>
+      <p class="scanner-description">
+        Choose barcode scanning for products with a barcode, or label scanning for products without one.
+      </p>
 
       <div class="scan-options">
         <button id="startCamera" class="camera-button" type="button">Scan barcode</button>
@@ -144,7 +144,6 @@
 
       <div id="reader"></div>
       <p id="scannerStatus" class="scanner-status" aria-live="polite">Choose a scanning method to begin.</p>
-
       <div id="scanResult" class="scan-result" hidden></div>
 
       <p class="privacy-note">Your camera is used only when you choose to scan or photograph a product.</p>
