@@ -1,21 +1,32 @@
 {
   "name": "TrueMark",
   "short_name": "TrueMark",
-  "description": "Scan before you buy — product information and regulatory check guidance.",
-  "start_url": "./",
+  "description": "Scan before you buy. Check product information and NAFDAC registration guidance.",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#087a50",
+  "categories": ["shopping", "utilities", "health"],
   "icons": [
     {
       "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
