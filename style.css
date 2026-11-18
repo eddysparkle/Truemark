@@ -1097,3 +1097,72 @@ a:focus-visible {
   line-height: 1.4;
   color: #5a6f66;
 }
+
+
+/* ---- Auth modal ---- */
+.auth-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 30, 22, 0.45);
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 80;
+  padding: 16px;
+}
+.auth-modal.open {
+  display: flex;
+}
+.auth-box {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 18px 18px 14px 14px;
+  padding: 18px 16px 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+.auth-box h2 {
+  margin: 0 0 12px;
+  font-size: 1.2rem;
+  color: #0b6e4f;
+}
+.auth-box label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 10px 0 4px;
+  color: #12352a;
+}
+.auth-box input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid #cfe0d8;
+  font: inherit;
+}
+.auth-error {
+  min-height: 1.2em;
+  margin: 10px 0 0;
+  color: #b42318;
+  font-size: 0.88rem;
+}
+.auth-actions-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.auth-switch {
+  background: none;
+  border: none;
+  color: #0b6e4f;
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  padding: 8px;
+  cursor: pointer;
+}
+.profile-icon {
+  cursor: pointer;
+}
