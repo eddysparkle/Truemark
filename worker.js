@@ -1,13 +1,13 @@
 /**
  * TrueMark API — Cloudflare Workers + D1 + Workers AI
- * Version 6.0.0
+ * Version 6.1.0
  *
  * Database-first product identification and safety-information service.
  * IMPORTANT: catalogue matches are not proof of physical authenticity.
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '6.0.0';
+const VERSION = '6.1.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -1084,6 +1084,222 @@ async function sourcesRoute(env) {
   });
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Auth — users & sessions (D1 tables: users, sessions)                        */
+/* -------------------------------------------------------------------------- */
+
+const SESSION_DAYS = 30;
+
+function normalizeEmail(value) {
+  return clean(value, 180).toLowerCase();
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function bytesToHex(bytes) {
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(hex) {
+  const cleanHex = String(hex || '').replace(/[^a-f0-9]/gi, '');
+  const out = new Uint8Array(cleanHex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(cleanHex.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+async function randomToken(bytes = 32) {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return bytesToHex(buf);
+}
+
+async function hashPassword(password, saltHex) {
+  const enc = new TextEncoder();
+  const salt = hexToBytes(saltHex);
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    256
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+
+async function createSession(db, userId) {
+  const token = await randomToken(32);
+  const created = isoNow();
+  const expires = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  await db
+    .prepare(
+      'INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)'
+    )
+    .bind(token, userId, created, expires)
+    .run();
+  return { token, expires_at: expires };
+}
+
+async function getUserFromAuthHeader(request, env) {
+  const header = request.headers.get('Authorization') || '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const token = match ? clean(match[1], 128) : '';
+  if (!token) return null;
+
+  const db = requireDatabase(env);
+  const row = await db
+    .prepare(
+      `SELECT u.id, u.email, u.display_name, s.expires_at
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token = ?`
+    )
+    .bind(token)
+    .first();
+
+  if (!row) return null;
+  if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) {
+    await db.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run();
+    return null;
+  }
+  return {
+    id: row.id,
+    email: row.email,
+    display_name: row.display_name || '',
+    token
+  };
+}
+
+async function signupRoute(request, env) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const password = String(body.password || '');
+  const displayName = clean(body.display_name || body.name || '', 80);
+
+  if (!isValidEmail(email)) {
+    return jsonResponse({ success: false, error: 'Enter a valid email address.' }, 400);
+  }
+  if (password.length < 8) {
+    return jsonResponse({ success: false, error: 'Password must be at least 8 characters.' }, 400);
+  }
+  if (password.length > 72) {
+    return jsonResponse({ success: false, error: 'Password is too long.' }, 400);
+  }
+
+  const db = requireDatabase(env);
+  const existing = await db.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+  if (existing) {
+    return jsonResponse({ success: false, error: 'An account with this email already exists.' }, 409);
+  }
+
+  const salt = await randomToken(16);
+  const passwordHash = await hashPassword(password, salt);
+  const id = crypto.randomUUID();
+  const now = isoNow();
+
+  await db
+    .prepare(
+      `INSERT INTO users (id, email, password_salt, password_hash, display_name, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, email, salt, passwordHash, displayName, now, now)
+    .run();
+
+  const session = await createSession(db, id);
+  return jsonResponse({
+    success: true,
+    user: { id, email, display_name: displayName },
+    token: session.token,
+    expires_at: session.expires_at
+  });
+}
+
+async function loginRoute(request, env) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const password = String(body.password || '');
+
+  if (!isValidEmail(email) || !password) {
+    return jsonResponse({ success: false, error: 'Email and password are required.' }, 400);
+  }
+
+  const db = requireDatabase(env);
+  const user = await db
+    .prepare('SELECT id, email, display_name, password_salt, password_hash FROM users WHERE email = ?')
+    .bind(email)
+    .first();
+
+  if (!user) {
+    return jsonResponse({ success: false, error: 'Invalid email or password.' }, 401);
+  }
+
+  const attempt = await hashPassword(password, user.password_salt);
+  if (attempt !== user.password_hash) {
+    return jsonResponse({ success: false, error: 'Invalid email or password.' }, 401);
+  }
+
+  const session = await createSession(db, user.id);
+  return jsonResponse({
+    success: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      display_name: user.display_name || ''
+    },
+    token: session.token,
+    expires_at: session.expires_at
+  });
+}
+
+async function logoutRoute(request, env) {
+  const header = request.headers.get('Authorization') || '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  let token = match ? clean(match[1], 128) : '';
+  if (!token) {
+    try {
+      const body = await readJson(request);
+      token = clean(body.token, 128);
+    } catch {
+      token = '';
+    }
+  }
+  if (token) {
+    const db = requireDatabase(env);
+    await db.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run();
+  }
+  return jsonResponse({ success: true });
+}
+
+async function meRoute(request, env) {
+  const user = await getUserFromAuthHeader(request, env);
+  if (!user) {
+    return jsonResponse({ success: false, error: 'Not signed in.' }, 401);
+  }
+  return jsonResponse({
+    success: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      display_name: user.display_name || ''
+    }
+  });
+}
+
+
 /* -------------------------------------------------------------------------- */
 /* API request routing                                                        */
 /* -------------------------------------------------------------------------- */
@@ -1116,6 +1332,10 @@ async function handleRequest(request, env) {
         'GET /recalls',
         'GET /products/search?q=product',
         'GET /products/:id',
+        'POST /auth/signup',
+        'POST /auth/login',
+        'POST /auth/logout',
+        'GET /auth/me',
         'GET /admin/sync/status'
       ]
     });
@@ -1214,6 +1434,22 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
       message: 'Automated regulator synchronisation is not configured.',
       sources: OFFICIAL_SOURCES
     });
+  }
+
+  if (path === '/auth/signup' && method === 'POST') {
+    return signupRoute(request, env);
+  }
+
+  if (path === '/auth/login' && method === 'POST') {
+    return loginRoute(request, env);
+  }
+
+  if (path === '/auth/logout' && method === 'POST') {
+    return logoutRoute(request, env);
+  }
+
+  if (path === '/auth/me' && method === 'GET') {
+    return meRoute(request, env);
   }
 
   return jsonResponse({
