@@ -1,13 +1,13 @@
 /**
  * TrueMark API — Cloudflare Workers + D1 + Workers AI
- * Version 6.1.0
+ * Version 6.2.0
  *
  * Database-first product identification and safety-information service.
  * IMPORTANT: catalogue matches are not proof of physical authenticity.
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '6.1.0';
+const VERSION = '6.2.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -1052,15 +1052,148 @@ async function verifyGeneral(body, env) {
 
 async function recallsRoute(url, env) {
   const query = clean(url.searchParams.get('q'), 100);
-  const recalls = await lookupFdaRecalls(env, query);
+
+  // Curated NAFDAC guidance + official channels (not a live private API scrape)
+  const nafdac_alerts = [
+    {
+      source: 'NAFDAC',
+      product_name: 'Official NAFDAC safety & SF product alerts',
+      reason: 'Review NAFDAC public alerts for substandard and falsified products before buying high-risk items (especially medicines).',
+      classification: 'guidance',
+      status: 'active',
+      recall_date: '',
+      recalling_firm: 'NAFDAC',
+      source_url: 'https://nafdac.gov.ng/'
+    },
+    {
+      source: 'NAFDAC',
+      product_name: 'Verify registration numbers on NAPAMS',
+      reason: 'A printed NAFDAC number is not proof the physical pack is genuine. Confirm on official portals and compare name/manufacturer with the pack.',
+      classification: 'guidance',
+      status: 'active',
+      recall_date: '',
+      recalling_firm: 'NAFDAC',
+      source_url: 'https://registration.nafdac.gov.ng/'
+    },
+    {
+      source: 'NAFDAC',
+      product_name: 'Medicines Greenbook search',
+      reason: 'For medicines, search Greenbook by product name or registration number and match strength, form and manufacturer.',
+      classification: 'guidance',
+      status: 'active',
+      recall_date: '',
+      recalling_firm: 'NAFDAC',
+      source_url: 'https://greenbook.nafdac.gov.ng/'
+    },
+    {
+      source: 'NAFDAC',
+      product_name: 'Report suspected fake or substandard products',
+      reason: 'Report to NAFDAC with product details, place of purchase and photos where possible. Hotline 0800-1-623322 · sf.alert@nafdac.gov.ng',
+      classification: 'report',
+      status: 'active',
+      recall_date: '',
+      recalling_firm: 'NAFDAC',
+      source_url: 'https://nafdac.gov.ng/'
+    }
+  ];
+
+  let fda_recalls = [];
+  try {
+    fda_recalls = await lookupFdaRecalls(env, query);
+  } catch (error) {
+    console.warn('FDA recalls unavailable:', errorMessage(error));
+  }
 
   return jsonResponse({
     success: true,
-    source: 'US FDA openFDA',
-    recalls,
-    count: recalls.length,
-    message: 'This endpoint currently checks US FDA drug enforcement recalls, not every product recall worldwide.'
+    nafdac_alerts,
+    fda_recalls,
+    recalls: fda_recalls,
+    count: nafdac_alerts.length + fda_recalls.length,
+    sources: {
+      nafdac: 'Official NAFDAC portals and public guidance (not a private live alert API)',
+      fda: 'US FDA openFDA drug enforcement'
+    },
+    message: 'NAFDAC items are official-channel guidance. FDA items are US openFDA enforcement records. Always confirm on the regulator site.'
   });
+}
+
+async function ensureUserHistoryTable(db) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS user_scan_history (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      identifier TEXT,
+      product_name TEXT,
+      method TEXT,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+  await db.prepare(`
+    CREATE INDEX IF NOT EXISTS idx_user_scan_history_user
+    ON user_scan_history(user_id, created_at)
+  `).run();
+}
+
+async function getHistoryRoute(request, env) {
+  const user = await getUserFromAuthHeader(request, env);
+  if (!user) {
+    return jsonResponse({ success: false, error: 'Not signed in.' }, 401);
+  }
+  const db = requireDatabase(env);
+  await ensureUserHistoryTable(db);
+  const result = await db
+    .prepare(
+      `SELECT id, identifier, product_name, method, created_at
+       FROM user_scan_history
+       WHERE user_id = ?
+       ORDER BY created_at DESC
+       LIMIT 50`
+    )
+    .bind(user.id)
+    .all();
+  return jsonResponse({
+    success: true,
+    history: result.results || []
+  });
+}
+
+async function postHistoryRoute(request, env) {
+  const user = await getUserFromAuthHeader(request, env);
+  if (!user) {
+    return jsonResponse({ success: false, error: 'Not signed in.' }, 401);
+  }
+  const body = await readJson(request);
+  const db = requireDatabase(env);
+  await ensureUserHistoryTable(db);
+  const id = crypto.randomUUID();
+  const now = isoNow();
+  await db
+    .prepare(
+      `INSERT INTO user_scan_history (id, user_id, identifier, product_name, method, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      id,
+      user.id,
+      clean(body.identifier || body.barcode, 120),
+      clean(body.product_name || body.name, 240),
+      clean(body.method, 80),
+      now
+    )
+    .run();
+  return jsonResponse({ success: true, id, created_at: now });
+}
+
+async function clearHistoryRoute(request, env) {
+  const user = await getUserFromAuthHeader(request, env);
+  if (!user) {
+    return jsonResponse({ success: false, error: 'Not signed in.' }, 401);
+  }
+  const db = requireDatabase(env);
+  await ensureUserHistoryTable(db);
+  await db.prepare('DELETE FROM user_scan_history WHERE user_id = ?').bind(user.id).run();
+  return jsonResponse({ success: true });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1336,6 +1469,10 @@ async function handleRequest(request, env) {
         'POST /auth/login',
         'POST /auth/logout',
         'GET /auth/me',
+        'GET /auth/history',
+        'POST /auth/history',
+        'DELETE /auth/history',
+        'GET /alerts',
         'GET /admin/sync/status'
       ]
     });
@@ -1450,6 +1587,22 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
 
   if (path === '/auth/me' && method === 'GET') {
     return meRoute(request, env);
+  }
+
+  if (path === '/auth/history' && method === 'GET') {
+    return getHistoryRoute(request, env);
+  }
+
+  if (path === '/auth/history' && method === 'POST') {
+    return postHistoryRoute(request, env);
+  }
+
+  if (path === '/auth/history' && method === 'DELETE') {
+    return clearHistoryRoute(request, env);
+  }
+
+  if (path === '/alerts' && method === 'GET') {
+    return recallsRoute(url, env);
   }
 
   return jsonResponse({
