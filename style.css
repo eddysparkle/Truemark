@@ -1581,3 +1581,48 @@ body {
   color: #0b6e4f;
   font-weight: 800;
 }
+
+
+/* History heading alignment */
+.history-section .section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.history-section .section-heading h2 {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.history-section .history-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.history-section .chip-btn {
+  white-space: nowrap;
+  padding: 7px 12px;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 420px) {
+  .history-section .section-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .history-section .history-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
