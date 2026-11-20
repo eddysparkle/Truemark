@@ -1478,107 +1478,59 @@ document.querySelectorAll(".category-card").forEach(card => {
 
 /* Starter Nigerian index — expand over time. Confirm NAFDAC numbers on the physical pack. */
 const NIGERIAN_STARTER_INDEX = [
-  {
-    product_name: "Lonart Tablets 20mg/120mg",
-    brand: "Lonart",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "04-8969",
-    strength_or_size: "20mg/120mg",
-    notes: "Artemether/Lumefantrine antimalarial. Confirm number on pack.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "Lonart DS Tablets 80mg/480mg",
-    brand: "Lonart",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "04-9927",
-    strength_or_size: "80mg/480mg",
-    notes: "Double-strength Lonart. Confirm number on pack.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "Lonart Suspension 20/120",
-    brand: "Lonart",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "04-8970",
-    strength_or_size: "20mg/120mg suspension",
-    notes: "Paediatric suspension. Confirm number on pack.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "Coartem Tablets 20mg/120mg",
-    brand: "Coartem",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "04-3275",
-    strength_or_size: "20mg/120mg",
-    notes: "Artemether/Lumefantrine. Confirm status on Greenbook.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "P-Alaxin Tablets",
-    brand: "P-Alaxin",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "",
-    strength_or_size: "",
-    notes: "Antimalarial. Use NAFDAC number on pack for official check.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "Amatem Forte",
-    brand: "Amatem",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "A4-3489",
-    strength_or_size: "",
-    notes: "Antimalarial. Confirm number on pack.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "Lumartem Tablets 20mg/120mg",
-    brand: "Lumartem",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "A4-4845",
-    strength_or_size: "20mg/120mg",
-    notes: "Antimalarial. Confirm number on pack.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "Nixoderm Ointment",
-    brand: "Nixoderm",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "04-3294",
-    strength_or_size: "15g",
-    notes: "Skin ointment. Confirm number on pack.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "Minoxidil Topical Solution 2%",
-    brand: "",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "",
-    strength_or_size: "2%",
-    notes: "Hair regrowth. Confirm brand and NAFDAC on pack.",
-    source: "TrueMark starter index"
-  },
-  {
-    product_name: "Minoxidil Topical Solution 5%",
-    brand: "",
-    category: "Health & medicines",
-    barcode: "",
-    nafdac_number: "",
-    strength_or_size: "5%",
-    notes: "Hair regrowth. Confirm brand and NAFDAC on pack.",
-    source: "TrueMark starter index"
-  }
+  { product_name: "Lonart Tablets 20mg/120mg", brand: "Lonart", category: "Health & medicines", barcode: "", nafdac_number: "04-8969", strength_or_size: "20mg/120mg", notes: "Artemether/Lumefantrine. Confirm number on pack.", source: "TrueMark starter index" },
+  { product_name: "Lonart DS Tablets 80mg/480mg", brand: "Lonart", category: "Health & medicines", barcode: "", nafdac_number: "04-9927", strength_or_size: "80mg/480mg", notes: "Double-strength Lonart. Confirm on pack.", source: "TrueMark starter index" },
+  { product_name: "Lonart Suspension 20/120", brand: "Lonart", category: "Health & medicines", barcode: "", nafdac_number: "04-8970", strength_or_size: "20mg/120mg suspension", notes: "Paediatric suspension. Confirm on pack.", source: "TrueMark starter index" },
+  { product_name: "Coartem Tablets 20mg/120mg", brand: "Coartem", category: "Health & medicines", barcode: "", nafdac_number: "04-3275", strength_or_size: "20mg/120mg", notes: "Antimalarial. Confirm on Greenbook.", source: "TrueMark starter index" },
+  { product_name: "P-Alaxin Tablets", brand: "P-Alaxin", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Use NAFDAC number on pack for official check.", source: "TrueMark starter index" },
+  { product_name: "Amatem Forte", brand: "Amatem", category: "Health & medicines", barcode: "", nafdac_number: "A4-3489", strength_or_size: "", notes: "Antimalarial. Confirm on pack.", source: "TrueMark starter index" },
+  { product_name: "Lumartem Tablets 20mg/120mg", brand: "Lumartem", category: "Health & medicines", barcode: "", nafdac_number: "A4-4845", strength_or_size: "20mg/120mg", notes: "Antimalarial. Confirm on pack.", source: "TrueMark starter index" },
+  { product_name: "Nixoderm Ointment", brand: "Nixoderm", category: "Health & medicines", barcode: "", nafdac_number: "04-3294", strength_or_size: "15g", notes: "Skin ointment. Confirm on pack.", source: "TrueMark starter index" },
+  { product_name: "Minoxidil Topical Solution 2%", brand: "Minoxidil", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "2%", notes: "Hair regrowth. Confirm brand and NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Minoxidil Topical Solution 5%", brand: "Minoxidil", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "5%", notes: "Hair regrowth. Confirm brand and NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Paracetamol 500mg Tablets", brand: "Paracetamol", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "500mg", notes: "Common analgesic. Prefer NAFDAC number on pack.", source: "TrueMark starter index" },
+  { product_name: "Emzor Paracetamol", brand: "Emzor", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "500mg", notes: "Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Panadol Extra", brand: "Panadol", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Amoxil Capsules", brand: "Amoxil", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Antibiotic. Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Ampiclox Capsules", brand: "Ampiclox", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Flagyl Tablets", brand: "Flagyl", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "ORS Sachet", brand: "ORS", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Oral rehydration. Confirm brand and NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Postinor-2", brand: "Postinor", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Emergency contraception. Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Fansidar Tablets", brand: "Fansidar", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Vitamin C 1000mg", brand: "Vitamin C", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "1000mg", notes: "Confirm brand and NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Blood Tonic", brand: "Blood Tonic", category: "Health & medicines", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Many brands exist. Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Robb Inhalant", brand: "Robb", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Aboniki Balm", brand: "Aboniki", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Delta Soap", brand: "Delta", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack if medicated claims.", source: "TrueMark starter index" },
+  { product_name: "Dettol Antiseptic", brand: "Dettol", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Pure Water Sachet", brand: "Pure Water", category: "Drinks & beverages", barcode: "", nafdac_number: "", strength_or_size: "50cl", notes: "Look for NAFDAC number on sachet. Confirm producer.", source: "TrueMark starter index" },
+  { product_name: "Indomie Instant Noodles", brand: "Indomie", category: "Food & groceries", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Common pack. Confirm batch/expiry on pack.", source: "TrueMark starter index" },
+  { product_name: "Peak Milk", brand: "Peak", category: "Food & groceries", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Three Crowns Milk", brand: "Three Crowns", category: "Food & groceries", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Cowbell Milk", brand: "Cowbell", category: "Food & groceries", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Golden Penny Spaghetti", brand: "Golden Penny", category: "Food & groceries", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Dangote Sugar", brand: "Dangote", category: "Food & groceries", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Coca-Cola", brand: "Coca-Cola", category: "Drinks & beverages", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Fanta", brand: "Fanta", category: "Drinks & beverages", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Pepsi", brand: "Pepsi", category: "Drinks & beverages", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Maltina", brand: "Maltina", category: "Drinks & beverages", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Amstel Malta", brand: "Amstel Malta", category: "Drinks & beverages", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Eva Water", brand: "Eva", category: "Drinks & beverages", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack.", source: "TrueMark starter index" },
+  { product_name: "Aquafina", brand: "Aquafina", category: "Drinks & beverages", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Closeup Toothpaste", brand: "Closeup", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Oral-B Toothpaste", brand: "Oral-B", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Nivea Cream", brand: "Nivea", category: "Beauty & cosmetics", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm NAFDAC on pack where shown.", source: "TrueMark starter index" },
+  { product_name: "Dove Soap", brand: "Dove", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Lux Soap", brand: "Lux", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Always Sanitary Pad", brand: "Always", category: "Personal care", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Pampers Diapers", brand: "Pampers", category: "Baby & children", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Hypo Bleach", brand: "Hypo", category: "Household products", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Morning Fresh Dishwashing Liquid", brand: "Morning Fresh", category: "Household products", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Omo Detergent", brand: "Omo", category: "Household products", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" },
+  { product_name: "Ariel Detergent", brand: "Ariel", category: "Household products", barcode: "", nafdac_number: "", strength_or_size: "", notes: "Confirm pack details.", source: "TrueMark starter index" }
 ];
+
+
 
 function searchStarterIndex(query) {
   const q = String(query || "").toLowerCase().trim();
@@ -2173,6 +2125,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 5.7 initialised successfully.");
+console.log("TrueMark 5.8 initialised successfully.");
 
 });
