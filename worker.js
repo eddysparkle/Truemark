@@ -7,7 +7,7 @@
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '6.2.0';
+const VERSION = '6.2.1';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -686,231 +686,26 @@ async function recognizeProduct(body, env) {
 
   const prompt = [
     'You are assisting with consumer product identification for Nigeria and international markets.',
-    'Inspect the supplied product image carefully.',
-    'Extract only details that are clearly and visibly readable on the packaging.',
+    'Inspect the product packaging image carefully: cartons, blister packs, bottles, sachets and tubes.',
+    'Extract only details that are clearly visible. Prefer the largest product title on the front of the pack.',
     '',
     'CRITICAL FIELD RULES:',
-    '1. brand = the commercial brand or trade name only (e.g. Nixoderm).',
-    '   NEVER use marketing words as brand: Perfumed, Medicated, Original, Premium, For skin problems, Herbal, Natural, Advanced, Formula.',
-    '2. product_name = the main product title on the pack.',
-    '3. strength_or_size = net content or strength only (e.g. 15g, 30ml, 5%, 2%).',
-    '4. batch_number = only text labelled Batch, Lot, B.No, L.No, Batch No, Lot No.',
-    '   Do NOT put size (15g) into batch_number.',
-    '5. nafdac_number = any visible NAFDAC registration text.',
-    '   Look for: NAFDAC REG NO, NAFDAC REG. No., NAFDAC No, NRN, A1-, A4-, B1-, B4-, 04- patterns.',
-    '   Copy the number exactly as printed. Do not invent one.',
-    '6. manufacturer = company name only if clearly labelled as manufacturer / manufactured by.',
-    '7. expiry_date and manufacturing_date = only if dates are clearly readable.',
+    '1. brand = commercial brand only (examples: Lonart, Coartem, Nixoderm, Emzor).',
+    '   Never use words like Tablets, Suspension, Forte, Perfumed, Medicated, Original as the brand by themselves.',
+    '2. product_name = brand + form/strength when visible (example: Lonart Tablets 20mg/120mg).',
+    '3. strength_or_size = dose or net content (20mg/120mg, 80/480, 15g, 5%, 100ml).',
+    '4. nafdac_number = any visible NAFDAC registration text. Copy exactly.',
+    '   Patterns include: 04-8969, 04-9927, A4-3489, A1-xxxx, B4-xxxx, NAFDAC REG NO.',
+    '5. batch_number = only Batch/Lot labels, not strength.',
+    '6. manufacturer = only if Manufactured by / Mfg is readable.',
+    '7. For antimalarials (Lonart, Coartem, P-Alaxin, Amatem, Lumartem), capture brand, strength and NAFDAC if present.',
     '',
-    'Return one JSON object with exactly these keys:',
+    'Return one JSON object with keys:',
     'product_name, brand, category, manufacturer, strength_or_size, barcode, nafdac_number, batch_number, manufacturing_date, expiry_date, country_of_origin, confidence, notes.',
-    'Use empty strings for unreadable fields.',
-    'confidence must be one of: high, medium, low.',
-    'Never invent or guess numbers, dates, brands or manufacturers.',
-    'Do not decide whether the item is genuine, safe, approved or counterfeit.',
-    'This is identification assistance only.',
-    'Return valid JSON without Markdown formatting.'
+    'Use empty strings when unreadable. confidence: high|medium|low.',
+    'Never invent numbers. Do not judge authenticity.',
+    'Return valid JSON only, no Markdown.'
   ].join(' ');
-
-  try {
-    const response = await env.AI.run(AI_MODEL, {
-      prompt: prompt,
-      image: Array.from(imageBytes),
-      max_tokens: 600
-    });
-
-    const raw = response.response || response.description || '';
-
-    const product = extractJsonObject(raw) || {
-      product_name: '',
-      brand: '',
-      category: '',
-      manufacturer: '',
-      strength_or_size: '',
-      barcode: '',
-      nafdac_number: '',
-      batch_number: '',
-      manufacturing_date: '',
-      expiry_date: '',
-      country_of_origin: '',
-      confidence: 'low',
-      notes: clean(raw, 1000)
-    };
-
-    return jsonResponse({
-      success: true,
-      recognized: true,
-      product,
-      disclaimer: 'AI may misread labels. Confirm every extracted detail against the physical packaging. Recognition is not authenticity verification.'
-    });
-
-  } catch (error) {
-    console.error(
-      'TrueMark AI recognition failed:',
-      errorMessage(error)
-    );
-
-    return jsonResponse({
-      success: false,
-      error: 'Image recognition is temporarily unavailable.',
-      detail: errorMessage(error)
-    }, 502);
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Nigerian regulator integrations                                            */
-/* -------------------------------------------------------------------------- */
-
-async function configuredRegulatorCheck(body, env, config) {
-  const registrationNumber = clean(
-    body.registration_number || body.nafdac_number || body.son_number || body.number,
-    120
-  );
-
-  if (!registrationNumber) {
-    return makeResult(
-      'needs_check',
-      'Registration number required',
-      'Enter the registration or certificate number shown on the product.'
-    );
-  }
-
-  if (!env[config.urlVariable] || !env[config.keyVariable]) {
-    return makeResult(
-      'needs_check',
-      `${config.name} live connection not configured`,
-      `TrueMark does not currently have an authorised ${config.name} API connection. Check the number directly with the regulator. A number printed on packaging is not proof of registration.`,
-      [sourceInfo(config.name, config.officialUrl, 'official_regulator')],
-      { registration_number: registrationNumber, integration: 'not_configured' }
-    );
-  }
-
-  try {
-    const data = await fetchJson(env[config.urlVariable], {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env[config.keyVariable]}`
-      },
-      body: JSON.stringify({ registration_number: registrationNumber })
-    }, 10000);
-
-    const explicitlyValid = data.valid === true || data.status === 'valid';
-    const explicitlyInvalid = data.valid === false || data.status === 'invalid';
-    const status = explicitlyValid ? 'record_found' : explicitlyInvalid ? 'official_invalid' : 'needs_check';
-
-    return makeResult(
-      status,
-      explicitlyValid ? 'Official record response found' : 'Official response needs review',
-      clean(data.message || 'Review the returned official-source record and its scope.', 500),
-      [sourceInfo(config.name, env[config.urlVariable], 'configured_official_api')],
-      { registration_number: registrationNumber, record: data }
-    );
-  } catch (error) {
-    return makeResult(
-      'source_unavailable',
-      `${config.name} source unavailable`,
-      'The configured regulator service did not respond. Try again later.',
-      [sourceInfo(config.name, config.officialUrl, 'official_regulator')],
-      { detail: errorMessage(error) }
-    );
-  }
-}
-
-function normalizeNafdacNumber(value) {
-  return String(value || '')
-    .toUpperCase()
-    .replace(/\s+/g, '')
-    .replace(/NAFDAC(REG)?\.?(NO|NUMBER)?[:.]?/gi, '')
-    .replace(/[^A-Z0-9\-]/g, '')
-    .trim();
-}
-
-function isLikelyNafdacFormat(value) {
-  const n = normalizeNafdacNumber(value);
-  if (!n || n.length < 4 || n.length > 24) return false;
-  return /^(?:[A-Z]\d{1,2}-)?\d{2,6}(?:-\d{1,6})?[A-Z]?$/.test(n) ||
-         /^\d{2,8}$/.test(n);
-}
-
-async function verifyNAFDAC(body, env) {
-  const raw =
-    body?.nafdac_number ||
-    body?.registration_number ||
-    body?.number ||
-    body?.certificate_number ||
-    '';
-
-  const nafdac = normalizeNafdacNumber(raw);
-
-  if (!nafdac) {
-    return jsonResponse({
-      success: false,
-      status: 'no_number',
-      error: 'Provide a NAFDAC number.'
-    }, 400);
-  }
-
-  // If you later get an authorised API, keep using it when configured
-  if (env.NAFDAC_API_URL && env.NAFDAC_API_KEY) {
-    return configuredRegulatorCheck(body, env, {
-      name: 'NAFDAC',
-      urlVariable: 'NAFDAC_API_URL',
-      keyVariable: 'NAFDAC_API_KEY',
-      officialUrl: 'https://registration.nafdac.gov.ng/'
-    });
-  }
-
-  const format_valid = isLikelyNafdacFormat(nafdac);
-
-  return jsonResponse({
-    success: true,
-    status: format_valid ? 'official_check_required' : 'format_uncertain',
-    nafdac_number: nafdac,
-    format_valid,
-    title: format_valid
-      ? 'NAFDAC number ready to check'
-      : 'NAFDAC number needs review',
-    message: format_valid
-      ? 'TrueMark prepared this registration number for an official check. Confirm it on NAFDAC channels. A registration match does not prove the physical item is genuine.'
-      : 'This value may not match a typical NAFDAC number format. Confirm the digits on the pack, then check on official NAFDAC channels.',
-    official_links: {
-      napams: 'https://registration.nafdac.gov.ng/',
-      greenbook: 'https://greenbook.nafdac.gov.ng/'
-    },
-    how_to_check: [
-      'Open NAPAMS → Verify Product',
-      'Enter the number exactly as printed (often without spaces)',
-      'Compare product name and manufacturer with the pack',
-      'For medicines, also search Greenbook by number or product name'
-    ],
-    disclaimer:
-      'TrueMark does not claim live automated access to NAFDAC private systems. Official confirmation is done on NAFDAC portals. Registration evidence is not pack authenticity certification.',
-    checked_at: new Date().toISOString()
-  });
-}
-
-async function verifySON(body, env) {
-  return configuredRegulatorCheck(body, env, {
-    name: 'SON',
-    urlVariable: 'SON_API_URL',
-    keyVariable: 'SON_API_KEY',
-    officialUrl: 'https://son.gov.ng/'
-  });
-}
-
-/* -------------------------------------------------------------------------- */
-/* United States FDA openFDA connectors                                       */
-/* -------------------------------------------------------------------------- */
-
-function fdaApiKeyQuery(env) {
-  return env.FDA_API_KEY ? `&api_key=${encodeURIComponent(env.FDA_API_KEY)}` : '';
-}
-
-async function lookupFdaNdc(value, env) {
-  const query = clean(value, 100);
-  if (!query) return [];
 
   const url = `https://api.fda.gov/drug/ndc.json?search=product_ndc:%22${encodeURIComponent(query)}%22&limit=10${fdaApiKeyQuery(env)}`;
 
