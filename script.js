@@ -68,75 +68,295 @@ function escapeHTML(value) {
   });
 }
 
-function getHistory() {
-try {
-const data = JSON.parse(
-localStorage.getItem(HISTORY_KEY) || "[]"
-);
+const API_BASE = "https://truemark-ai.edialeeghonghon.workers.dev";
 
-return Array.isArray(data) ? data : [];  
-
-} catch {  
-  return [];  
+function getAuthToken() {
+  try {
+    return localStorage.getItem("truemarkAuthToken") || "";
+  } catch {
+    return "";
+  }
 }
 
+function getHistory() {
+  try {
+    const data = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function setLocalHistory(list) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify((list || []).slice(0, 40)));
+}
+
+async function pushHistoryToCloud(identifier, name, method) {
+  const token = getAuthToken();
+  if (!token) return;
+  try {
+    await fetch(API_BASE + "/auth/history", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({
+        identifier: identifier || "",
+        product_name: name || "",
+        method: method || "Scanned"
+      })
+    });
+  } catch (error) {
+    console.warn("Cloud history save failed:", error);
+  }
+}
+
+async function fetchCloudHistory() {
+  const token = getAuthToken();
+  if (!token) return null;
+  try {
+    const response = await fetch(API_BASE + "/auth/history", {
+      method: "GET",
+      headers: { Authorization: "Bearer " + token }
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) return null;
+    return (data.history || []).map((row) => ({
+      barcode: row.identifier || "",
+      name: row.product_name || "Product scan",
+      method: row.method || "Scanned",
+      date: row.created_at
+        ? new Date(row.created_at).toLocaleString()
+        : "",
+      cloud: true
+    }));
+  } catch (error) {
+    console.warn("Cloud history load failed:", error);
+    return null;
+  }
 }
 
 function saveScan(identifier, name, method) {
-try {
-const history = getHistory();
-
-history.unshift({  
-    barcode: identifier || "No barcode",  
-    name: name || "Product scan",  
-    method: method || "Scanned",  
-    date: new Date().toLocaleString()  
-  });  
-
-  localStorage.setItem(  
-    HISTORY_KEY,  
-    JSON.stringify(history.slice(0, 30))  
-  );  
-
-  displayHistory();  
-
-} catch (error) {  
-  console.warn("History error:", error);  
+  try {
+    const history = getHistory();
+    history.unshift({
+      barcode: identifier || "No barcode",
+      name: name || "Product scan",
+      method: method || "Scanned",
+      date: new Date().toLocaleString()
+    });
+    setLocalHistory(history);
+    displayHistory();
+    pushHistoryToCloud(identifier, name, method);
+  } catch (error) {
+    console.warn("History error:", error);
+  }
 }
 
+function renderHistoryItems(history) {
+  if (!historyList) return;
+  if (!history.length) {
+    historyList.innerHTML =
+      '<div class="empty-state">' +
+      '<span class="empty-icon">▦</span>' +
+      "<h3>No scans yet</h3>" +
+      "<p>Products you scan will appear here.</p>" +
+      "</div>";
+    return;
+  }
+  historyList.innerHTML = history
+    .map((item) => {
+      return (
+        '<div class="history-item"><div><strong>' +
+        escapeHTML(item.name) +
+        "</strong><small>" +
+        escapeHTML(item.method || "Scanned") +
+        " · " +
+        escapeHTML(item.barcode || "") +
+        "</small><small>" +
+        escapeHTML(item.date || "") +
+        (item.cloud ? " · account" : "") +
+        '</small></div><span class="history-badge">Scanned</span></div>'
+      );
+    })
+    .join("");
 }
 
 function displayHistory() {
-if (!historyList) return;
-
-const history = getHistory();  
-
-if (!history.length) {  
-  historyList.innerHTML = `  
-    <div class="empty-state">  
-      <span class="empty-icon">▦</span>  
-      <h3>No scans yet</h3>  
-      <p>Products you scan will appear here.</p>  
-    </div>  
-  `;  
-  return;  
-}  
-
-historyList.innerHTML = history.map(item => `  
-  <div class="history-item">  
-    <div>  
-      <strong>${escapeHTML(item.name)}</strong>  
-      <small>  
-        ${escapeHTML(item.method || "Scanned")}  
-        · ${escapeHTML(item.barcode)}  
-      </small>  
-      <small>${escapeHTML(item.date)}</small>  
-    </div>  
-    <span class="history-badge">Scanned</span>  
-  </div>  
-`).join("");
-
+  if (!historyList) return;
+  const local = getHistory();
+  renderHistoryItems(local);
+  fetchCloudHistory().then((cloud) => {
+    if (!cloud || !cloud.length) return;
+    // Prefer account history when signed in
+    renderHistoryItems(cloud);
+  });
 }
+
+function clearHistoryLocal() {
+  try {
+    localStorage.removeItem(HISTORY_KEY);
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+async function clearAllHistory() {
+  clearHistoryLocal();
+  const token = getAuthToken();
+  if (token) {
+    try {
+      await fetch(API_BASE + "/auth/history", {
+        method: "DELETE",
+        headers: { Authorization: "Bearer " + token }
+      });
+    } catch (error) {
+      console.warn("Cloud history clear failed:", error);
+    }
+  }
+  displayHistory();
+  showToast("History cleared");
+}
+
+async function loadSafetyAlerts() {
+  const panel = document.getElementById("alertsPanel");
+  const card = document.getElementById("alerts");
+  if (!panel) return;
+
+  panel.hidden = false;
+  panel.classList.remove("is-open");
+  panel.innerHTML =
+    '<div class="alerts-shell alerts-loading">' +
+      '<div class="alerts-glow"></div>' +
+      '<p class="alerts-loading-text">Fetching safety updates</p>' +
+      '<div class="alerts-spinner"></div>' +
+    "</div>";
+
+  // trigger enter animation
+  requestAnimationFrame(() => {
+    panel.classList.add("is-open");
+  });
+
+  if (card) card.classList.add("is-active");
+
+  try {
+    const response = await fetch(API_BASE + "/alerts");
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Could not load alerts");
+    }
+
+    const nafdac = data.nafdac_alerts || [];
+    const fda = data.fda_recalls || data.recalls || [];
+
+    let cardsHtml = "";
+    let delay = 0;
+
+    function addCard(item, kind) {
+      delay += 1;
+      const title = item.product_name || item.source || "Alert";
+      const reason = item.reason || "";
+      const meta = [item.classification, item.status, item.recall_date]
+        .filter(Boolean)
+        .join(" · ");
+      const url = item.source_url || "";
+      cardsHtml +=
+        '<article class="alert-motion-card" style="--delay:' +
+        delay +
+        '">' +
+        '<div class="alert-motion-top">' +
+        '<span class="alert-pill alert-pill-' +
+        escapeHTML(kind) +
+        '">' +
+        escapeHTML(kind === "nafdac" ? "NAFDAC" : "FDA") +
+        "</span>" +
+        "</div>" +
+        "<h4>" +
+        escapeHTML(String(title).slice(0, 140)) +
+        "</h4>" +
+        "<p>" +
+        escapeHTML(String(reason).slice(0, 220)) +
+        "</p>" +
+        (meta
+          ? "<small>" + escapeHTML(meta) + "</small>"
+          : "") +
+        (url
+          ? '<a class="alert-motion-link" href="' +
+            escapeHTML(url) +
+            '" target="_blank" rel="noopener noreferrer">Open source</a>'
+          : "") +
+        "</article>";
+    }
+
+    nafdac.forEach((item) => addCard(item, "nafdac"));
+    fda.slice(0, 6).forEach((item) => addCard(item, "fda"));
+
+    panel.innerHTML =
+      '<div class="alerts-shell is-ready">' +
+        '<div class="alerts-glow"></div>' +
+        '<div class="alerts-head">' +
+          "<div>" +
+            '<p class="alerts-kicker">Live safety desk</p>' +
+            "<h3>Stay informed</h3>" +
+            '<p class="alerts-note">Official guidance and enforcement samples. Not a complete global recall feed.</p>' +
+          "</div>" +
+          '<button type="button" id="closeAlertsPanel" class="alerts-close" aria-label="Close">×</button>' +
+        "</div>" +
+        '<div class="alerts-track">' +
+          cardsHtml +
+        "</div>" +
+        '<div class="alerts-foot">' +
+          '<a href="https://nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">NAFDAC</a>' +
+          '<a href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">NAPAMS</a>' +
+          '<a href="https://www.fda.gov/safety/recalls-market-withdrawals-safety-alerts" target="_blank" rel="noopener noreferrer">FDA recalls</a>' +
+        "</div>" +
+      "</div>";
+
+    requestAnimationFrame(() => {
+      panel.classList.add("is-open");
+      panel.querySelectorAll(".alert-motion-card").forEach((el) => {
+        el.classList.add("in");
+      });
+    });
+
+    const closeBtn = document.getElementById("closeAlertsPanel");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => {
+        panel.classList.remove("is-open");
+        if (card) card.classList.remove("is-active");
+        setTimeout(() => {
+          panel.hidden = true;
+          panel.innerHTML = "";
+        }, 320);
+      });
+    }
+
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    panel.innerHTML =
+      '<div class="alerts-shell is-ready">' +
+        "<h3>Could not load alerts</h3>" +
+        "<p>" +
+        escapeHTML(error.message || "Network error") +
+        "</p>" +
+        '<div class="alerts-foot">' +
+          '<a href="https://nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAFDAC</a>' +
+          '<a href="https://www.fda.gov/safety/recalls-market-withdrawals-safety-alerts" target="_blank" rel="noopener noreferrer">FDA recalls</a>' +
+        "</div>" +
+        '<button type="button" id="closeAlertsPanel" class="scan-again-button">Close</button>' +
+      "</div>";
+    panel.classList.add("is-open");
+    const closeBtn = document.getElementById("closeAlertsPanel");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => {
+        panel.hidden = true;
+        if (card) card.classList.remove("is-active");
+      });
+    }
+  }
+}
+
 
 /* =========================
 SCANNER MODAL
@@ -1777,19 +1997,30 @@ if (target) {
 });
 
 const viewHistory = $("viewHistory");
-
 if (viewHistory) {
-viewHistory.addEventListener("click", () => {
-const section = $("history");
-
-if (section) {  
-    section.scrollIntoView({  
-      behavior: "smooth"  
-    });  
-  }  
-});
-
+  viewHistory.addEventListener("click", () => {
+    const section = $("history");
+    if (section) section.scrollIntoView({ behavior: "smooth" });
+  });
 }
+
+const clearHistoryBtn = $("clearHistory");
+if (clearHistoryBtn) {
+  clearHistoryBtn.addEventListener("click", () => {
+    if (confirm("Clear recent activity on this device" + (getAuthToken() ? " and your account history?" : "?"))) {
+      clearAllHistory();
+    }
+  });
+}
+
+const alertsCard = $("alerts");
+if (alertsCard) {
+  alertsCard.style.cursor = "pointer";
+  alertsCard.addEventListener("click", () => {
+    loadSafetyAlerts();
+  });
+}
+
 
 
 
@@ -1942,6 +2173,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 5.6 initialised successfully.");
+console.log("TrueMark 5.7 initialised successfully.");
 
 });
