@@ -101,19 +101,23 @@
     <section class="history-section" id="history">
       <div class="section-heading">
         <h2>Recent activity</h2>
-        <button id="viewHistory" type="button">View all</button>
+        <div class="history-actions">
+          <button id="viewHistory" type="button">View all</button>
+          <button id="clearHistory" type="button" class="text-danger-btn">Clear history</button>
+        </div>
       </div>
       <div id="historyList" class="history-list"></div>
     </section>
 
-    <section class="alert-card" id="alerts">
+    <section class="alert-card" id="alerts" role="button" tabindex="0" aria-label="Open safety alerts">
       <div class="alert-icon">!</div>
       <div>
         <h3>Stay informed</h3>
-        <p>Get important product safety information and official alerts.</p>
+        <p>NAFDAC guidance and FDA drug enforcement alerts.</p>
       </div>
       <span class="alert-arrow">→</span>
     </section>
+    <div id="alertsPanel" class="alerts-panel" hidden></div>
   </main>
 
   <div class="scanner-modal" id="scannerModal" aria-hidden="true">
