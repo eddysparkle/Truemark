@@ -32,7 +32,8 @@ let cameraRunning = false;
 let startingCamera = false;
 let processingScan = false;
 
-let lastSearchContext = null; // { query, products } for back-to-results
+let lastSearchContext = null;
+let lastFdaRecalls = []; // { query, products } for back-to-results
 
 
 if (labelImageInput) {
@@ -151,6 +152,12 @@ function saveScan(identifier, name, method) {
     });
     setLocalHistory(history);
     displayHistory();
+
+const reportNavBtn = $("reportNavBtn");
+if (reportNavBtn) {
+  reportNavBtn.addEventListener("click", () => openReportForm({}));
+}
+
     pushHistoryToCloud(identifier, name, method);
   } catch (error) {
     console.warn("History error:", error);
@@ -676,6 +683,261 @@ function showProductUnavailable(barcode, reason) {
   }, "Photograph product label");
 }
 
+
+function classificationBadgeHtml(data) {
+  const key = (data && (data.classification || data.status)) || "unverified";
+  const map = {
+    authenticated: { label: "Authenticated", cls: "badge-auth" },
+    regulatory_verified: { label: "Regulatory verified", cls: "badge-reg" },
+    information_matched: { label: "Information matched", cls: "badge-info" },
+    catalogue_match: { label: "Information matched", cls: "badge-info" },
+    caution: { label: "Caution", cls: "badge-caution" },
+    needs_check: { label: "Caution", cls: "badge-caution" },
+    high_risk: { label: "High risk", cls: "badge-risk" },
+    unverified: { label: "Unverified", cls: "badge-unverified" },
+    not_found: { label: "Unverified", cls: "badge-unverified" }
+  };
+  const item = map[String(key).toLowerCase()] || map.unverified;
+  const meaning = (data && data.classification_meaning) || "";
+  return (
+    '<div class="v-badge-row">' +
+      '<span class="v-badge ' + item.cls + '">' + escapeHTML(item.label) + "</span>" +
+      (meaning
+        ? '<p class="v-badge-meaning">' + escapeHTML(meaning) + "</p>"
+        : "") +
+    "</div>"
+  );
+}
+
+async function submitProductReport(payload) {
+  const response = await fetch(
+    "https://truemark-ai.edialeeghonghon.workers.dev/reports",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }
+  );
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Report service returned an invalid response.");
+  }
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || data.message || "Report could not be submitted.");
+  }
+  return data;
+}
+
+function openReportForm(prefill = {}) {
+  openScanner();
+  if (!scanResult) return;
+  scanResult.hidden = false;
+  scanResult.innerHTML =
+    '<button id="backToResults" class="back-link-btn" type="button">← Back</button>' +
+    "<h3>Report a suspicious product</h3>" +
+    '<p class="buy-note">Reports help TrueMark prioritise checks. They are not public accusations. Use NAFDAC official channels for urgent safety issues.</p>' +
+    '<form id="reportForm" class="report-form">' +
+      '<label>Product name<input name="product_name" required value="' +
+        escapeHTML(prefill.product_name || "") +
+      '"></label>' +
+      '<label>Brand<input name="brand" value="' +
+        escapeHTML(prefill.brand || "") +
+      '"></label>' +
+      '<label>Barcode<input name="barcode" value="' +
+        escapeHTML(prefill.barcode || "") +
+      '"></label>' +
+      '<label>NAFDAC / registration no.<input name="registration_number" value="' +
+        escapeHTML(prefill.registration_number || prefill.nafdac_number || "") +
+      '"></label>' +
+      '<label>Batch / lot<input name="batch_number" value="' +
+        escapeHTML(prefill.batch_number || "") +
+      '"></label>' +
+      '<label>Where purchased<input name="purchase_location" placeholder="Market, pharmacy, Jumia seller…" value="' +
+        escapeHTML(prefill.purchase_location || "") +
+      '"></label>' +
+      '<label>What is wrong<textarea name="concern" required rows="4" placeholder="Describe the issue (seal, smell, missing NAFDAC, mismatch…)"></textarea></label>' +
+      '<button type="submit" class="scan-again-button">Submit report</button>' +
+    "</form>";
+
+  const back = document.getElementById("backToResults");
+  if (back) {
+    back.addEventListener("click", () => {
+      if (lastSearchContext && lastSearchContext.products && lastSearchContext.products.length) {
+        backToSearchResults();
+      } else {
+        scanResult.hidden = true;
+      }
+    });
+  }
+
+  const form = document.getElementById("reportForm");
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const fd = new FormData(form);
+      const payload = Object.fromEntries(fd.entries());
+      try {
+        showToast("Submitting report…");
+        const data = await submitProductReport(payload);
+        scanResult.innerHTML =
+          "<h3>Report received</h3>" +
+          "<p>Reference: <strong>" +
+          escapeHTML(data.report_id || "") +
+          "</strong></p>" +
+          "<p>" +
+          escapeHTML(data.message || "Thank you.") +
+          "</p>" +
+          '<button id="scanAgain" class="scan-again-button" type="button">Done</button>';
+        addScanAgainButton();
+        showToast("Report submitted");
+      } catch (error) {
+        showToast(error.message || "Report failed");
+      }
+    });
+  }
+}
+
+
+
+
+function assessPackRiskClient(product) {
+  const flags = [];
+  let level = "none";
+  const expiryRaw = String(product.expiry_date || "").trim();
+  const mfgRaw = String(product.manufacturing_date || "").trim();
+  const batchRaw = String(product.batch_number || "").trim();
+
+  function parseDate(raw) {
+    if (!raw) return null;
+    let m = raw.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if (m) {
+      let y = +m[3];
+      if (y < 100) y += 2000;
+      return new Date(y, +m[2] - 1, +m[1]);
+    }
+    const t = Date.parse(raw);
+    return Number.isNaN(t) ? null : new Date(t);
+  }
+
+  const expiry = parseDate(expiryRaw);
+  const mfg = parseDate(mfgRaw);
+  const now = new Date();
+
+  if (expiryRaw && !expiry) {
+    flags.push({ code: "expiry_unparsed", message: "Expiry text could not be parsed. Confirm on the pack." });
+    level = "caution";
+  }
+  if (expiry) {
+    const daysLeft = Math.floor((expiry - now) / 86400000);
+    if (daysLeft < 0) {
+      flags.push({ code: "expired", message: "Expiry appears to be in the past. Do not use expired medicines." });
+      level = "high_risk";
+    } else if (daysLeft <= 90) {
+      flags.push({ code: "expiring_soon", message: "Expiry appears within about 90 days. Confirm on the pack." });
+      if (level !== "high_risk") level = "caution";
+    }
+  }
+  if (mfg && expiry && mfg > expiry) {
+    flags.push({ code: "mfg_after_expiry", message: "Manufacturing date appears after expiry — confirm both on the pack." });
+    level = "high_risk";
+  }
+  if (!batchRaw && (expiryRaw || mfgRaw)) {
+    flags.push({ code: "batch_missing", message: "No batch/lot was read. Check the physical pack." });
+    if (level === "none") level = "caution";
+  }
+
+  return {
+    level,
+    flags,
+    disclaimer: "Risk flags use extracted text only. OCR can misread. Confirm on the pack."
+  };
+}
+
+function packRiskHtml(packRisk) {
+  if (!packRisk || !packRisk.level || packRisk.level === "none") {
+    return "";
+  }
+  const level = packRisk.level;
+  const cls =
+    level === "high_risk"
+      ? "risk-panel risk-high"
+      : "risk-panel risk-caution";
+  const title =
+    level === "high_risk" ? "High-risk pack signals" : "Caution — check the pack";
+  const flags = Array.isArray(packRisk.flags) ? packRisk.flags : [];
+  const items = flags
+    .map(
+      (f) =>
+        "<li><strong>" +
+        escapeHTML(f.code || "") +
+        ":</strong> " +
+        escapeHTML(f.message || "") +
+        "</li>"
+    )
+    .join("");
+  return (
+    '<div class="' +
+    cls +
+    '">' +
+    "<p class=\"risk-title\">" +
+    escapeHTML(title) +
+    "</p>" +
+    (items ? "<ul class=\"compact-steps\">" + items + "</ul>" : "") +
+    '<p class="buy-note">' +
+    escapeHTML(
+      packRisk.disclaimer ||
+        "Confirm dates and batch on the physical pack. OCR can misread."
+    ) +
+    "</p></div>"
+  );
+}
+
+function fdaRecallsHtml(recalls, query) {
+  if (!Array.isArray(recalls) || !recalls.length) return "";
+  const rows = recalls
+    .slice(0, 4)
+    .map((r) => {
+      return (
+        '<div class="recall-row">' +
+        "<strong>" +
+        escapeHTML((r.product_name || "").slice(0, 120)) +
+        "</strong>" +
+        "<small>" +
+        escapeHTML(
+          [r.classification, r.status, r.recall_date, r.recalling_firm]
+            .filter(Boolean)
+            .join(" · ")
+        ) +
+        "</small>" +
+        "<p>" +
+        escapeHTML((r.reason || "").slice(0, 180)) +
+        "</p>" +
+        (r.code_info
+          ? "<small>Code/batch info: " +
+            escapeHTML(String(r.code_info).slice(0, 120)) +
+            "</small>"
+          : "") +
+        "</div>"
+      );
+    })
+    .join("");
+  return (
+    '<div class="fda-recall-panel">' +
+    '<p class="risk-title">Related US FDA enforcement records</p>' +
+    '<p class="buy-note">Matches are keyword-based from openFDA for “' +
+    escapeHTML(query || "") +
+    '”. A US recall does not automatically apply to a Nigerian pack or every batch.</p>' +
+    rows +
+    '<p class="buy-note"><a href="https://open.fda.gov/apis/drug/enforcement/" target="_blank" rel="noopener noreferrer">openFDA drug enforcement</a></p>' +
+    "</div>"
+  );
+}
+
+
 function displayProduct(product, barcode, sources = [], options = {}) {
   if (!scanResult) return;
   const fromSearch = !!(options && options.fromSearch);
@@ -722,6 +984,7 @@ function displayProduct(product, barcode, sources = [], options = {}) {
   scanResult.innerHTML =
     '<span class="result-check">✓</span>' +
     "<h3>Product information found</h3>" +
+    classificationBadgeHtml({ classification: "information_matched", classification_meaning: "Product information matches a catalogue or index record. The physical item is not authenticated." }) +
     imageHtml +
     '<div class="product-details">' +
     fieldsHtml +
@@ -762,12 +1025,24 @@ function displayProduct(product, barcode, sources = [], options = {}) {
     (fromSearch || (lastSearchContext && lastSearchContext.products && lastSearchContext.products.length)
       ? '<button id="backToResults" class="back-link-btn" type="button">← Back to search results</button>'
       : "") +
+    '<button id="reportProductBtn" class="chip-btn chip-btn-danger" type="button">Report suspicious product</button>' +
     '<button id="scanAgain" class="scan-again-button" type="button">Scan another product</button>';
 
   scanResult.hidden = false;
 
   if (scannerStatus) {
     scannerStatus.textContent = "Product information retrieved.";
+  }
+
+  const reportBtn = document.getElementById("reportProductBtn");
+  if (reportBtn) {
+    reportBtn.addEventListener("click", () => {
+      openReportForm({
+        product_name: product.product_name || "",
+        brand: product.brands || "",
+        barcode: barcode || ""
+      });
+    });
   }
 
   const backBtn = document.getElementById("backToResults");
@@ -1146,6 +1421,8 @@ ${nafdacBlock}
         </p>
       </div>
     ` : ""}
+
+    ${packRiskHtml(product.pack_risk || assessPackRiskClient(product))}
 
     <div class="verification-warning">
       <strong>Authenticity not verified</strong>
@@ -1589,6 +1866,20 @@ function looksLikeNafdac(value) {
   return /^(?:[A-Z]\d{1,2}-)?\d{2,6}(?:-\d{1,6})?[A-Z]?$/.test(v);
 }
 
+async function fetchFdaRecallsClient(query) {
+  try {
+    const response = await fetch(
+      "https://truemark-ai.edialeeghonghon.workers.dev/recalls?q=" +
+        encodeURIComponent(query)
+    );
+    const data = await response.json();
+    const list = data.fda_recalls || data.recalls || data.results || [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
 async function searchProductsByName(query) {
   const q = String(query || "").trim();
   if (!q) return [];
@@ -1651,6 +1942,7 @@ async function searchProductsByName(query) {
       { method: "GET" }
     );
     const data = await response.json();
+    lastFdaRecalls = Array.isArray(data.fda_recalls) ? data.fda_recalls : [];
     const list = Array.isArray(data.products)
       ? data.products
       : Array.isArray(data.results)
@@ -1704,6 +1996,10 @@ async function searchProductsByName(query) {
     seen.add(key);
     unique.push(item);
   });
+
+  if (!lastFdaRecalls.length && /(minoxidil|lonart|tablet|drug|capsule|ointment)/i.test(q)) {
+    lastFdaRecalls = await fetchFdaRecallsClient(q);
+  }
 
   return unique.slice(0, 20);
 }
@@ -1772,6 +2068,7 @@ function showNameSearchResults(query, products) {
         '<p class="auth-card-title">This does not mean the product is fake</p>' +
         '<p class="auth-card-lead">TrueMark could not find this name in the starter index or public catalogues. Nigerian medicines are often missing from global catalogues.</p>' +
         (isMinoxidilQuery(query) ? minoxidilGuideHtml() : "") +
+    fdaRecallsHtml(lastFdaRecalls, query) +
         '<p class="auth-next-label">Best next steps</p>' +
         '<ul class="auth-steps compact-steps">' +
           "<li>Enter the NAFDAC number from the pack</li>" +
@@ -2202,6 +2499,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 6.0 initialised successfully.");
+console.log("TrueMark 2.0 Phase 2 initialised.");
 
 });
