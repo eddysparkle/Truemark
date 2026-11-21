@@ -1541,18 +1541,17 @@ function searchStarterIndex(query) {
       item.brand,
       item.category,
       item.nafdac_number,
-      item.strength_or_size,
       item.notes
     ]
+      .filter(Boolean)
       .join(" ")
       .toLowerCase();
-    return hay.indexOf(q) !== -1;
+    return hay.includes(q) || q.split(/\s+/).every((part) => hay.includes(part));
   }).map((item) => ({
     product_name: item.product_name,
-    brand: item.brand,
-    category: item.category,
+    brand: item.brand || "",
+    category: item.category || "",
     barcode: item.barcode || "",
-    image_url: "",
     nafdac_number: item.nafdac_number || "",
     strength_or_size: item.strength_or_size || "",
     notes: item.notes || "",
@@ -1751,30 +1750,41 @@ function showNameSearchResults(query, products) {
   const cards = products
     .map((item, index) => {
       const title = item.product_name || "Unnamed product";
-      const meta = [
-        item.brand,
-        item.category,
-        item.barcode,
-        item.nafdac_number ? "NAFDAC " + item.nafdac_number : ""
-      ]
+      const meta = [item.brand, item.category, item.nafdac_number, item.barcode]
         .filter(Boolean)
         .join(" · ");
+      const buyQ = encodeURIComponent(title + (item.brand ? " " + item.brand : ""));
       const img = item.image_url
         ? '<img src="' +
           escapeHTML(item.image_url) +
-          '" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:8px;">'
-        : "";
+          '" alt="" class="result-thumb">'
+        : '<div class="result-thumb result-thumb-empty">✓</div>';
       return (
-        '<button type="button" class="history-item name-search-result" data-search-index="' +
+        '<div class="history-item name-search-result search-result-card" data-search-index="' +
         index +
-        '" style="width:100%;text-align:left;cursor:pointer;">' +
-        '<div style="display:flex;gap:10px;align-items:center;">' +
+        '">' +
+        '<button type="button" class="search-result-main" data-search-index="' +
+        index +
+        '">' +
+        '<div class="search-result-row">' +
         img +
-        "<div><strong>" +
+        '<div class="search-result-text"><strong>' +
         escapeHTML(title) +
-        "</strong><small>" +
+        '</strong><small>' +
         escapeHTML(meta || item.source || "Catalogue match") +
-        "</small></div></div></button>"
+        '</small></div></div></button>' +
+        '<div class="search-buy-row">' +
+        '<a class="buy-chip" href="https://www.jumia.com.ng/catalog/?q=' +
+        buyQ +
+        '" target="_blank" rel="noopener noreferrer">Buy on Jumia</a>' +
+        '<a class="buy-chip" href="https://www.konga.com/search?search=' +
+        buyQ +
+        '" target="_blank" rel="noopener noreferrer">Buy on Konga</a>' +
+        '<a class="buy-chip buy-chip-muted" href="https://www.google.com/search?q=' +
+        buyQ +
+        encodeURIComponent(" buy Nigeria") +
+        '" target="_blank" rel="noopener noreferrer">Google</a>' +
+        '</div></div>'
       );
     })
     .join("");
@@ -1826,7 +1836,7 @@ function showNameSearchResults(query, products) {
       products.length + " catalogue match(es) found.";
   }
 
-  scanResult.querySelectorAll("[data-search-index]").forEach((btn) => {
+  scanResult.querySelectorAll(".search-result-main").forEach((btn) => {
     btn.addEventListener("click", () => {
       const index = Number(btn.getAttribute("data-search-index"));
       const item = products[index];
@@ -2125,6 +2135,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 5.8 initialised successfully.");
+console.log("TrueMark 6.0 initialised successfully.");
 
 });
