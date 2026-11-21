@@ -1944,3 +1944,122 @@ body {
     padding-left: 0;
   }
 }
+
+
+/* Compact next-check cards */
+.auth-card {
+  margin-top: 10px;
+  padding: 10px 12px 10px;
+  border-radius: 12px;
+  background: #f3faf6;
+  border: 1px solid #d5ebe0;
+  border-left: 3px solid #0b6e4f;
+}
+.auth-card-title {
+  margin: 0 0 4px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #0b6e4f;
+  letter-spacing: 0.01em;
+}
+.auth-card-lead {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #4a6358;
+}
+.auth-card h4,
+.auth-next-label {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5f7268;
+}
+.auth-steps,
+.compact-steps {
+  margin: 0 0 10px;
+  padding-left: 1.05rem;
+}
+.auth-steps li,
+.compact-steps li {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #2a3d35;
+}
+.auth-actions {
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.auth-actions .scan-again-button {
+  padding: 10px 12px;
+  font-size: 0.82rem;
+}
+.buy-card {
+  margin-top: 2px;
+  padding-top: 8px;
+}
+.buy-card-title {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5f7268;
+}
+.buy-note {
+  margin: 6px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: #6a7d74;
+}
+.back-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  color: #0b6e4f;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.back-link-btn:hover {
+  text-decoration: underline;
+}
+.minox-guide {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid #cfe8dc;
+  box-shadow: 0 6px 18px rgba(11, 110, 79, 0.06);
+}
+.minox-guide-title {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0b6e4f;
+}
+.minox-guide-lead {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #4a6358;
+}
+.verification-warning {
+  padding: 10px 12px !important;
+  border-radius: 12px !important;
+}
+.verification-warning strong {
+  font-size: 0.82rem !important;
+}
+.verification-warning p {
+  font-size: 0.78rem !important;
+  line-height: 1.4 !important;
+  margin: 4px 0 0 !important;
+}
