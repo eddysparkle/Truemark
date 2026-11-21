@@ -1,13 +1,13 @@
 /**
  * TrueMark API — Cloudflare Workers + D1 + Workers AI
- * Version 6.2.0
+ * Version 7.0.0 — TrueMark 2.0 Phase 2 — pack risk + FDA recalls
  *
  * Database-first product identification and safety-information service.
  * IMPORTANT: catalogue matches are not proof of physical authenticity.
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '6.2.1';
+const VERSION = '7.1.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -220,14 +220,84 @@ function requireDatabase(env) {
   return env.DB;
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* TrueMark 2.0 — Verification classification (honest, evidence-based)        */
+/* AUTHENTICATED is reserved for manufacturer-backed unit authentication.     */
+/* -------------------------------------------------------------------------- */
+
+const CLASSIFICATION = {
+  authenticated: {
+    key: 'authenticated',
+    label: 'Authenticated',
+    severity: 0,
+    meaning: 'Individual-pack authenticity was confirmed by a manufacturer-backed or authoritative authentication system.'
+  },
+  regulatory_verified: {
+    key: 'regulatory_verified',
+    label: 'Regulatory verified',
+    severity: 1,
+    meaning: 'Applicable regulatory registration or authorisation was confirmed. This does not authenticate the physical pack.'
+  },
+  information_matched: {
+    key: 'information_matched',
+    label: 'Information matched',
+    severity: 2,
+    meaning: 'Product information matches a reliable public or indexed record. Individual-pack authenticity is unconfirmed.'
+  },
+  caution: {
+    key: 'caution',
+    label: 'Caution',
+    severity: 3,
+    meaning: 'Information is incomplete or inconsistent. Further checks on the physical pack are required.'
+  },
+  high_risk: {
+    key: 'high_risk',
+    label: 'High risk',
+    severity: 4,
+    meaning: 'Strong evidence of a recall, safety issue, or other serious concern was found for related product records.'
+  },
+  unverified: {
+    key: 'unverified',
+    label: 'Unverified',
+    severity: 2,
+    meaning: 'There is insufficient reliable information to establish the product status. This is not proof of counterfeit.'
+  }
+};
+
+function mapStatusToClassification(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'authenticated' || s === 'unit_authenticated') return CLASSIFICATION.authenticated;
+  if (s === 'regulatory_verified' || s === 'registration_confirmed') return CLASSIFICATION.regulatory_verified;
+  if (s === 'catalogue_match' || s === 'information_matched' || s === 'found') return CLASSIFICATION.information_matched;
+  if (s === 'high_risk' || s === 'recall' || s === 'recalled') return CLASSIFICATION.high_risk;
+  if (s === 'needs_check' || s === 'caution' || s === 'review_required' || s === 'inconsistent') return CLASSIFICATION.caution;
+  if (s === 'not_found' || s === 'unverified' || s === 'not_verified') return CLASSIFICATION.unverified;
+  return CLASSIFICATION.unverified;
+}
+
 function makeResult(status, title, message, sources = [], extra = {}) {
+  const classification = mapStatusToClassification(status);
   return {
     success: true,
     status,
+    classification: classification.key,
+    classification_label: classification.label,
+    classification_meaning: classification.meaning,
     title,
     message,
     sources,
     checked_at: isoNow(),
+    evidence: extra.evidence || {
+      what_was_checked: extra.what_was_checked || [],
+      what_matched: extra.what_matched || [],
+      what_did_not_match: extra.what_did_not_match || [],
+      remains_unverified: extra.remains_unverified || [
+        'Physical pack authenticity',
+        'Seller legitimacy',
+        'Batch-specific serialisation (unless a manufacturer system confirmed it)'
+      ]
+    },
     disclaimer: 'A catalogue or registration-number match does not prove that the physical item is genuine. Check the seller, packaging, batch details and applicable official guidance.',
     ...extra
   };
@@ -591,7 +661,19 @@ async function searchProductsRoute(url, env) {
   const limit = safeInteger(url.searchParams.get('limit'), 12, 1, 30);
 
   if (query.length < 2) {
-    return jsonResponse({ success: true, products: [], message: 'Enter at least two characters.' });
+    let fda_recalls = [];
+  const qLower = String(query || '').toLowerCase();
+  if (qLower.length >= 3 && /(minoxidil|lonart|coartem|drug|tablet|capsule|ointment|syrup|paracetamol|amoxicillin|antibiotic|malaria)/i.test(qLower)) {
+    try {
+      fda_recalls = await lookupFdaRecalls(env, query);
+      fda_recalls = (fda_recalls || []).slice(0, 5);
+    } catch (_) {
+      fda_recalls = [];
+    }
+  }
+
+  return jsonResponse({ success: true,
+    fda_recalls, products: [], message: 'Enter at least two characters.' });
   }
 
   const db = requireDatabase(env);
@@ -665,6 +747,129 @@ function extractJsonObject(value) {
   }
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Pack risk rules (expiry / batch) — TrueMark 2.0 Phase 2                    */
+/* Transparent heuristics only. Never invent dates.                           */
+/* -------------------------------------------------------------------------- */
+
+function parseFlexibleDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  // ISO / YYYY-MM-DD
+  let m = raw.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  if (m) {
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let y = +m[3];
+    if (y < 100) y += 2000;
+    const d = new Date(Date.UTC(y, +m[2] - 1, +m[1]));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // MM/YYYY or YYYY-MM
+  m = raw.match(/^(\d{4})[\/\-.](\d{1,2})$/);
+  if (m) {
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, 1));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  m = raw.match(/^(\d{1,2})[\/\-.](\d{4})$/);
+  if (m) {
+    const d = new Date(Date.UTC(+m[2], +m[1] - 1, 1));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const t = Date.parse(raw);
+  if (!Number.isNaN(t)) return new Date(t);
+  return null;
+}
+
+function assessPackRisk(product = {}) {
+  const flags = [];
+  let level = 'none'; // none | caution | high_risk
+  const expiryRaw = clean(product.expiry_date || product.expiry || '', 40);
+  const mfgRaw = clean(product.manufacturing_date || product.mfg_date || '', 40);
+  const batchRaw = clean(product.batch_number || product.lot || '', 80);
+
+  const expiry = parseFlexibleDate(expiryRaw);
+  const mfg = parseFlexibleDate(mfgRaw);
+  const now = new Date();
+
+  if (expiryRaw && !expiry) {
+    flags.push({
+      code: 'expiry_unparsed',
+      severity: 'caution',
+      message: 'An expiry-like value was read but could not be parsed. Confirm the date on the pack.'
+    });
+    level = 'caution';
+  }
+
+  if (expiry) {
+    const msDay = 24 * 60 * 60 * 1000;
+    const daysLeft = Math.floor((expiry.getTime() - now.getTime()) / msDay);
+    if (daysLeft < 0) {
+      flags.push({
+        code: 'expired',
+        severity: 'high_risk',
+        message: 'The printed expiry date appears to be in the past. Do not use expired medicines or sensitive products.'
+      });
+      level = 'high_risk';
+    } else if (daysLeft <= 90) {
+      flags.push({
+        code: 'expiring_soon',
+        severity: 'caution',
+        message: 'The printed expiry date appears to be within about 90 days. Confirm on the pack before buying or using.'
+      });
+      if (level !== 'high_risk') level = 'caution';
+    }
+  }
+
+  if (mfg && expiry && mfg.getTime() > expiry.getTime()) {
+    flags.push({
+      code: 'mfg_after_expiry',
+      severity: 'high_risk',
+      message: 'Manufacturing date appears after expiry date — likely a misread or suspicious labelling. Confirm both dates on the pack.'
+    });
+    level = 'high_risk';
+  }
+
+  if (batchRaw) {
+    // Heuristic only: extremely short or placeholder-like batches
+    if (/^(n\/a|na|none|null|0000|xxxx)$/i.test(batchRaw)) {
+      flags.push({
+        code: 'batch_placeholder',
+        severity: 'caution',
+        message: 'Batch/lot value looks like a placeholder. Confirm the batch printed on the pack.'
+      });
+      if (level === 'none') level = 'caution';
+    }
+  } else if (expiryRaw || mfgRaw) {
+    flags.push({
+      code: 'batch_missing',
+      severity: 'caution',
+      message: 'No batch/lot was read from the image. Many regulated packs show a batch — check the physical pack.'
+    });
+    if (level === 'none') level = 'caution';
+  }
+
+  return {
+    level,
+    flags,
+    inputs: {
+      expiry_date: expiryRaw,
+      manufacturing_date: mfgRaw,
+      batch_number: batchRaw
+    },
+    disclaimer: 'Risk flags are heuristics from extracted text only. OCR can misread dates. Always confirm on the physical pack.'
+  };
+}
+
 async function recognizeProduct(body, env) {
   if (!env.AI) {
     return jsonResponse({
@@ -693,34 +898,65 @@ async function recognizeProduct(body, env) {
     '1. brand = commercial brand only (examples: Lonart, Coartem, Nixoderm, Emzor).',
     '   Never use words like Tablets, Suspension, Forte, Perfumed, Medicated, Original as the brand by themselves.',
     '2. product_name = brand + form/strength when visible (example: Lonart Tablets 20mg/120mg).',
-    '3. strength_or_size = dose or net content (20mg/120mg, 80/480, 15g, 5%, 100ml).',
+    '3. strength_or_size = dose or net content (20mg/120mg, 80/480, 15g, 5%).',
     '4. nafdac_number = any visible NAFDAC registration text. Copy exactly.',
-    '   Patterns include: 04-8969, 04-9927, A4-3489, A1-xxxx, B4-xxxx, NAFDAC REG NO.',
     '5. batch_number = only Batch/Lot labels, not strength.',
-    '6. manufacturer = only if Manufactured by / Mfg is readable.',
-    '7. For antimalarials (Lonart, Coartem, P-Alaxin, Amatem, Lumartem), capture brand, strength and NAFDAC if present.',
+    '6. manufacturing_date and expiry_date = only if clearly labelled; keep original format.',
+    '7. Never invent numbers, dates or registration values.',
     '',
     'Return one JSON object with keys:',
     'product_name, brand, category, manufacturer, strength_or_size, barcode, nafdac_number, batch_number, manufacturing_date, expiry_date, country_of_origin, confidence, notes.',
     'Use empty strings when unreadable. confidence: high|medium|low.',
-    'Never invent numbers. Do not judge authenticity.',
-    'Return valid JSON only, no Markdown.'
+    'Do not judge authenticity. Return valid JSON only, no Markdown.'
   ].join(' ');
 
-  const url = `https://api.fda.gov/drug/ndc.json?search=product_ndc:%22${encodeURIComponent(query)}%22&limit=10${fdaApiKeyQuery(env)}`;
-
   try {
-    const data = await fetchJson(url, {}, 9000);
-    return (data.results || []).map((item) => ({
-      brand_name: item.brand_name || '',
-      generic_name: item.generic_name || '',
-      labeler_name: item.labeler_name || '',
-      product_ndc: item.product_ndc || '',
-      marketing_status: item.marketing_status || '',
-      listing_expiration_date: item.listing_expiration_date || ''
-    }));
-  } catch {
-    return [];
+    const response = await env.AI.run(AI_MODEL, {
+      prompt: prompt,
+      image: Array.from(imageBytes),
+      max_tokens: 700
+    });
+
+    const raw = response.response || response.description || '';
+    const product = extractJsonObject(raw) || {
+      product_name: '',
+      brand: '',
+      category: '',
+      manufacturer: '',
+      strength_or_size: '',
+      barcode: '',
+      nafdac_number: '',
+      batch_number: '',
+      manufacturing_date: '',
+      expiry_date: '',
+      country_of_origin: '',
+      confidence: 'low',
+      notes: clean(raw, 1000)
+    };
+
+    const pack_risk = assessPackRisk(product);
+    let classification = 'unverified';
+    if (pack_risk.level === 'high_risk') classification = 'high_risk';
+    else if (pack_risk.level === 'caution') classification = 'caution';
+    else if (product.product_name || product.brand) classification = 'information_matched';
+
+    return jsonResponse({
+      success: true,
+      recognized: true,
+      product,
+      pack_risk,
+      classification,
+      classification_label: mapStatusToClassification(classification).label,
+      classification_meaning: mapStatusToClassification(classification).meaning,
+      disclaimer: 'AI may misread labels. Confirm every extracted detail against the physical packaging. Recognition is not authenticity verification.'
+    });
+  } catch (error) {
+    console.error('TrueMark AI recognition failed:', errorMessage(error));
+    return jsonResponse({
+      success: false,
+      error: 'Image recognition is temporarily unavailable.',
+      detail: errorMessage(error)
+    }, 502);
   }
 }
 
@@ -729,7 +965,7 @@ async function lookupFdaRecalls(env, productTerm = '') {
   const search = term
     ? `&search=product_description:%22${encodeURIComponent(term)}%22`
     : '';
-  const url = `https://api.fda.gov/drug/enforcement.json?limit=20${search}${fdaApiKeyQuery(env)}`;
+  const url = `https://api.fda.gov/drug/enforcement.json?limit=15${search}${fdaApiKeyQuery(env)}`;
 
   try {
     const data = await fetchJson(url, {}, 9000);
@@ -741,7 +977,27 @@ async function lookupFdaRecalls(env, productTerm = '') {
       status: item.status || '',
       recall_date: item.recall_initiation_date || '',
       recalling_firm: item.recalling_firm || '',
+      code_info: item.code_info || '',
       source_url: 'https://open.fda.gov/apis/drug/enforcement/'
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function lookupFdaNdc(query, env) {
+  const q = clean(query, 100);
+  if (!q) return [];
+  const url = `https://api.fda.gov/drug/ndc.json?search=product_ndc:%22${encodeURIComponent(q)}%22&limit=10${fdaApiKeyQuery(env)}`;
+  try {
+    const data = await fetchJson(url, {}, 9000);
+    return (data.results || []).map((item) => ({
+      brand_name: item.brand_name || '',
+      generic_name: item.generic_name || '',
+      labeler_name: item.labeler_name || '',
+      product_ndc: item.product_ndc || '',
+      marketing_status: item.marketing_status || '',
+      listing_expiration_date: item.listing_expiration_date || ''
     }));
   } catch {
     return [];
@@ -844,6 +1100,204 @@ async function verifyGeneral(body, env) {
 /* -------------------------------------------------------------------------- */
 /* Recall information                                                         */
 /* -------------------------------------------------------------------------- */
+
+
+/* -------------------------------------------------------------------------- */
+/* TrueMark 2.0 — Consumer suspicious-product reports                         */
+/* -------------------------------------------------------------------------- */
+
+async function ensureReportsTable(db) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS product_reports (
+      id TEXT PRIMARY KEY,
+      product_name TEXT NOT NULL DEFAULT '',
+      brand TEXT NOT NULL DEFAULT '',
+      barcode TEXT NOT NULL DEFAULT '',
+      registration_number TEXT NOT NULL DEFAULT '',
+      batch_number TEXT NOT NULL DEFAULT '',
+      purchase_location TEXT NOT NULL DEFAULT '',
+      purchase_date TEXT NOT NULL DEFAULT '',
+      concern TEXT NOT NULL DEFAULT '',
+      country TEXT NOT NULL DEFAULT 'NG',
+      status TEXT NOT NULL DEFAULT 'received',
+      created_at TEXT NOT NULL,
+      user_id TEXT
+    )
+  `).run();
+  await db.prepare(`
+    CREATE INDEX IF NOT EXISTS idx_reports_created ON product_reports(created_at)
+  `).run();
+}
+
+async function createReportRoute(request, env) {
+  const db = requireDatabase(env);
+  await ensureReportsTable(db);
+  const body = await readJson(request);
+  const product_name = clean(body.product_name || body.name, 240);
+  const concern = clean(body.concern || body.description, 2000);
+  if (!product_name && !clean(body.barcode, 80) && !clean(body.registration_number || body.nafdac_number, 80)) {
+    return jsonResponse({
+      success: false,
+      error: 'Provide at least a product name, barcode, or registration number.'
+    }, 400);
+  }
+  if (!concern || concern.length < 10) {
+    return jsonResponse({
+      success: false,
+      error: 'Describe the concern in at least 10 characters.'
+    }, 400);
+  }
+  const id = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO product_reports (
+      id, product_name, brand, barcode, registration_number, batch_number,
+      purchase_location, purchase_date, concern, country, status, created_at, user_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, NULL)
+  `).bind(
+    id,
+    product_name,
+    clean(body.brand, 160),
+    clean(body.barcode, 80),
+    clean(body.registration_number || body.nafdac_number, 80),
+    clean(body.batch_number || body.lot, 80),
+    clean(body.purchase_location || body.seller, 240),
+    clean(body.purchase_date, 40),
+    concern,
+    clean(body.country || 'NG', 8) || 'NG',
+    isoNow()
+  ).run();
+
+  return jsonResponse({
+    success: true,
+    report_id: id,
+    status: 'received',
+    message: 'Report received. TrueMark does not publicly accuse brands or sellers based solely on unverified consumer reports. Official channels remain NAFDAC and other competent authorities.',
+    checked_at: isoNow()
+  });
+}
+
+function regulatorsRoute() {
+  return jsonResponse({
+    success: true,
+    version: VERSION,
+    note: 'Connector catalogue for TrueMark 2.0. Availability does not imply live automated verification for every product.',
+    connectors: [
+      {
+        id: 'ng-nafdac',
+        country: 'NG',
+        name: 'NAFDAC',
+        categories: ['medicines', 'food', 'cosmetics', 'chemicals'],
+        access: 'no_public_product_api',
+        integration: 'deep_links_manual_check',
+        portals: [
+          'https://registration.nafdac.gov.ng/',
+          'https://greenbook.nafdac.gov.ng/',
+          'https://nafdac.gov.ng/'
+        ],
+        limitations: 'No authorised public bulk registration API for third-party apps. A missing lookup is not proof of counterfeit.'
+      },
+      {
+        id: 'ng-son',
+        country: 'NG',
+        name: 'Standards Organisation of Nigeria',
+        categories: ['standards', 'compulsory products'],
+        access: 'limited_public',
+        integration: 'manual_or_authorised_api',
+        portals: ['https://son.gov.ng/'],
+        limitations: 'No general consumer product authenticity API exposed for TrueMark.'
+      },
+      {
+        id: 'us-openfda',
+        country: 'US',
+        name: 'openFDA',
+        categories: ['drugs', 'food', 'devices', 'recalls'],
+        access: 'public_api',
+        integration: 'live',
+        base_url: 'https://api.fda.gov/',
+        endpoints: [
+          'drug/enforcement.json',
+          'food/enforcement.json',
+          'device/enforcement.json',
+          'drug/ndc.json'
+        ],
+        limitations: 'US-centric. FDA does not pre-approve all foods/cosmetics. Recalls may be batch-specific.'
+      },
+      {
+        id: 'global-openfoodfacts',
+        country: 'GLOBAL',
+        name: 'Open Food / Beauty / Products Facts',
+        categories: ['food', 'beauty', 'general', 'pet'],
+        access: 'public_api',
+        integration: 'live',
+        base_url: 'https://world.openfoodfacts.org/api/',
+        limitations: 'Community-contributed. Coverage uneven in Nigeria. Not a regulatory database.'
+      },
+      {
+        id: 'eu-safety-gate',
+        country: 'EU',
+        name: 'EU Safety Gate',
+        categories: ['consumer products'],
+        access: 'public_web_partial_api',
+        integration: 'planned',
+        portals: ['https://ec.europa.eu/safety-gate/'],
+        limitations: 'Requires careful parsing; not a universal product register.'
+      },
+      {
+        id: 'uk-mhra',
+        country: 'GB',
+        name: 'MHRA / OPSS',
+        categories: ['medicines', 'devices', 'consumer safety'],
+        access: 'public_web',
+        integration: 'planned',
+        portals: [
+          'https://www.gov.uk/government/organisations/medicines-and-healthcare-products-regulatory-agency'
+        ],
+        limitations: 'No single free universal product authenticity API for all consumer goods.'
+      },
+      {
+        id: 'ca-health',
+        country: 'CA',
+        name: 'Health Canada',
+        categories: ['drugs', 'devices', 'recalls'],
+        access: 'public_web_open_data',
+        integration: 'planned',
+        portals: ['https://www.canada.ca/en/health-canada.html'],
+        limitations: 'Category-specific datasets; not a global barcode oracle.'
+      },
+      {
+        id: 'au-tga',
+        country: 'AU',
+        name: 'TGA / ARTG',
+        categories: ['therapeutic goods'],
+        access: 'public_search',
+        integration: 'planned',
+        portals: ['https://www.tga.gov.au/'],
+        limitations: 'Therapeutic goods focus; not all consumer products.'
+      },
+      {
+        id: 'in-cdsco-fssai',
+        country: 'IN',
+        name: 'CDSCO / FSSAI',
+        categories: ['drugs', 'food'],
+        access: 'public_web',
+        integration: 'planned',
+        portals: ['https://cdsco.gov.in/', 'https://www.fssai.gov.in/'],
+        limitations: 'Partnership or careful official channels required for reliable automation.'
+      },
+      {
+        id: 'africa-regulators',
+        country: 'AF',
+        name: 'Selected African NRAs',
+        categories: ['medicines'],
+        access: 'mostly_public_web',
+        integration: 'planned_modular',
+        examples: ['FDA Ghana', 'SAHPRA', 'PPB Kenya', 'NDA Uganda', 'TMDA', 'Rwanda FDA'],
+        limitations: 'Heterogeneous systems; many lack open product APIs.'
+      }
+    ]
+  });
+}
+
 
 async function recallsRoute(url, env) {
   const query = clean(url.searchParams.get('q'), 100);
@@ -1398,6 +1852,14 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
 
   if (path === '/alerts' && method === 'GET') {
     return recallsRoute(url, env);
+  }
+
+  if (path === '/reports' && method === 'POST') {
+    return createReportRoute(request, env);
+  }
+
+  if (path === '/regulators' && method === 'GET') {
+    return regulatorsRoute();
   }
 
   return jsonResponse({
