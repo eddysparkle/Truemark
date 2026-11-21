@@ -32,6 +32,9 @@ let cameraRunning = false;
 let startingCamera = false;
 let processingScan = false;
 
+let lastSearchContext = null; // { query, products } for back-to-results
+
+
 if (labelImageInput) {
 labelImageInput.multiple = true;
 labelImageInput.accept = "image/*";
@@ -673,8 +676,10 @@ function showProductUnavailable(barcode, reason) {
   }, "Photograph product label");
 }
 
-function displayProduct(product, barcode, sources = []) {
+function displayProduct(product, barcode, sources = [], options = {}) {
   if (!scanResult) return;
+  const fromSearch = !!(options && options.fromSearch);
+
 
   const fields = [
     ["Product", product.product_name],
@@ -724,13 +729,13 @@ function displayProduct(product, barcode, sources = []) {
     '<div class="auth-card">' +
       '<p class="auth-card-title">Authenticity not confirmed</p>' +
       '<p class="auth-card-lead">This database record helps identify a product type. It does not authenticate the physical item in your hand.</p>' +
-      "<h4>What you should do next</h4>" +
-      '<ol class="auth-steps">' +
-        "<li>Compare name, brand and details with the physical pack.</li>" +
-        "<li>If a NAFDAC number is on the pack, verify it on NAPAMS or Greenbook.</li>" +
-        "<li>If there is a MAS scratch code, use the official SMS check.</li>" +
-        "<li>Buy only from sellers you trust after checking the pack.</li>" +
-      "</ol>" +
+      '<p class="auth-next-label">Next checks</p>' +
+      '<ul class="auth-steps compact-steps">' +
+        "<li>Match name, brand and strength on the pack</li>" +
+        "<li>Verify any NAFDAC number on NAPAMS / Greenbook</li>" +
+        "<li>Use MAS scratch SMS if the pack has one</li>" +
+        "<li>Buy only from sellers you trust</li>" +
+      "</ul>" +
       '<div class="auth-actions">' +
         '<a class="scan-again-button" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
         '<a class="scan-again-button" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open Greenbook</a>' +
@@ -754,12 +759,20 @@ function displayProduct(product, barcode, sources = []) {
     '<p class="result-note">Source: ' +
     escapeHTML(sourceNames) +
     ". Coverage may be incomplete.</p>" +
+    (fromSearch || (lastSearchContext && lastSearchContext.products && lastSearchContext.products.length)
+      ? '<button id="backToResults" class="back-link-btn" type="button">← Back to search results</button>'
+      : "") +
     '<button id="scanAgain" class="scan-again-button" type="button">Scan another product</button>';
 
   scanResult.hidden = false;
 
   if (scannerStatus) {
     scannerStatus.textContent = "Product information retrieved.";
+  }
+
+  const backBtn = document.getElementById("backToResults");
+  if (backBtn) {
+    backBtn.addEventListener("click", () => backToSearchResults());
   }
 
   addScanAgainButton();
@@ -1695,8 +1708,59 @@ async function searchProductsByName(query) {
   return unique.slice(0, 20);
 }
 
+
+
+function isMinoxidilQuery(q) {
+  return /minoxidil|rogaine|regaine|kirkland.*hair|hair\s*regrowth/i.test(String(q || ""));
+}
+
+function minoxidilGuideHtml() {
+  return (
+    '<div class="minox-guide">' +
+      '<p class="minox-guide-title">Minoxidil buyer checklist</p>' +
+      '<p class="minox-guide-lead">Catalogue gaps are common. Use the pack and official checks — not the listing photo alone.</p>' +
+      '<ul class="compact-steps">' +
+        '<li><strong>Before paying on Jumia:</strong> prefer pharmacies / official stores; read recent reviews mentioning NAFDAC and seal.</li>' +
+        '<li><strong>On arrival:</strong> sealed bottle, clear label, batch + expiry, NAFDAC number printed (not stickered over).</li>' +
+        '<li><strong>Strength:</strong> 2% or 5% must match what you ordered; solution vs foam.</li>' +
+        '<li><strong>Verify NAFDAC:</strong> enter the number in TrueMark or NAPAMS / Greenbook before first use.</li>' +
+        '<li><strong>MAS:</strong> if a scratch panel exists, SMS the code via the official NAFDAC MAS channel on the pack.</li>' +
+        '<li><strong>Red flags:</strong> no NAFDAC, broken seal, wrong spelling, watery smell vs known genuine, price far below market.</li>' +
+      '</ul>' +
+      '<div class="search-buy-row" style="padding-left:0;margin-top:8px;">' +
+        '<a class="buy-chip" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
+        '<a class="buy-chip" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open Greenbook</a>' +
+        '<a class="buy-chip buy-chip-muted" href="https://www.jumia.com.ng/catalog/?q=minoxidil%205%25" target="_blank" rel="noopener noreferrer">Jumia 5%</a>' +
+      '</div>' +
+      '<p class="buy-note">TrueMark cannot prove a Jumia listing is genuine from a photo. Only the physical pack + official NAFDAC/MAS checks can support a safer decision.</p>' +
+    '</div>'
+  );
+}
+
+function backToSearchResults() {
+  if (lastSearchContext && lastSearchContext.products && lastSearchContext.products.length) {
+    showNameSearchResults(lastSearchContext.query, lastSearchContext.products);
+    if (scannerStatus) {
+      scannerStatus.textContent = "Back to search results.";
+    }
+    return;
+  }
+  if (scanResult) {
+    scanResult.hidden = true;
+    scanResult.innerHTML = "";
+  }
+  if (scannerStatus) {
+    scannerStatus.textContent = "Choose barcode scanning or label photo.";
+  }
+}
+
 function showNameSearchResults(query, products) {
   if (!scanResult) return;
+
+  lastSearchContext = {
+    query: String(query || ""),
+    products: Array.isArray(products) ? products.slice() : []
+  };
 
   openScanner();
 
@@ -1707,12 +1771,13 @@ function showNameSearchResults(query, products) {
       '<div class="auth-card">' +
         '<p class="auth-card-title">This does not mean the product is fake</p>' +
         '<p class="auth-card-lead">TrueMark could not find this name in the starter index or public catalogues. Nigerian medicines are often missing from global catalogues.</p>' +
-        "<h4>Best next steps for medicines</h4>" +
-        '<ol class="auth-steps">' +
-          "<li>Enter the NAFDAC number from the pack.</li>" +
-          "<li>Open Greenbook or NAPAMS to check registration.</li>" +
-          "<li>Scan a barcode if present, or photograph the label.</li>" +
-        "</ol>" +
+        (isMinoxidilQuery(query) ? minoxidilGuideHtml() : "") +
+        '<p class="auth-next-label">Best next steps</p>' +
+        '<ul class="auth-steps compact-steps">' +
+          "<li>Enter the NAFDAC number from the pack</li>" +
+          "<li>Check registration on Greenbook or NAPAMS</li>" +
+          "<li>Scan barcode or photograph the label</li>" +
+        "</ul>" +
         '<div class="auth-actions">' +
           '<a class="scan-again-button" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAFDAC Greenbook</a>' +
           '<a class="scan-again-button" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
@@ -1797,16 +1862,17 @@ function showNameSearchResults(query, products) {
     '<div class="history-list" style="max-height:50vh;overflow:auto;">' +
     cards +
     "</div>" +
+    (isMinoxidilQuery(query) ? minoxidilGuideHtml() : "") +
     '<div class="auth-card">' +
       '<p class="auth-card-title">Authenticity not confirmed</p>' +
       '<p class="auth-card-lead">A catalogue name match helps identify a product record. It does not prove a physical item is genuine.</p>' +
-      "<h4>What you should do next</h4>" +
-      '<ol class="auth-steps">' +
-        "<li>Compare name, strength and manufacturer with the physical pack.</li>" +
-        "<li>Find the NAFDAC number on the pack and verify it on NAPAMS or Greenbook.</li>" +
-        "<li>If the pack has a MAS scratch code, use the official SMS check.</li>" +
-        "<li>Avoid packs with no NAFDAC number, mismatched details or suspicious packaging.</li>" +
-      "</ol>" +
+      '<p class="auth-next-label">Next checks</p>' +
+      '<ul class="auth-steps compact-steps">' +
+        "<li>Match name, strength and manufacturer on the pack</li>" +
+        "<li>Verify NAFDAC number on NAPAMS / Greenbook</li>" +
+        "<li>Use MAS scratch SMS if present</li>" +
+        "<li>Skip packs with no number or suspicious packaging</li>" +
+      "</ul>" +
       '<div class="auth-actions">' +
         '<a class="scan-again-button" href="https://registration.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open NAPAMS</a>' +
         '<a class="scan-again-button" href="https://greenbook.nafdac.gov.ng/" target="_blank" rel="noopener noreferrer">Open Greenbook</a>' +
@@ -1863,7 +1929,8 @@ function showNameSearchResults(query, products) {
           image_url: item.image_url
         },
         item.barcode || query,
-        [{ name: item.source || "Catalogue" }]
+        [{ name: item.source || "Catalogue" }],
+        { fromSearch: true }
       );
       saveScan(
         item.barcode || query,
