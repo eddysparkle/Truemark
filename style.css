@@ -2063,3 +2063,117 @@ body {
   line-height: 1.4 !important;
   margin: 4px 0 0 !important;
 }
+
+
+/* TrueMark 2.0 classification badges */
+.v-badge-row {
+  margin: 8px 0 12px;
+}
+.v-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.v-badge-meaning {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #5a6f66;
+}
+.badge-auth { background: #e3f6ea; color: #0b6e4f; }
+.badge-reg { background: #e8f1ff; color: #1d4f91; }
+.badge-info { background: #eef6f1; color: #1f5c45; }
+.badge-caution { background: #fff6e5; color: #8a5a00; }
+.badge-risk { background: #fdecec; color: #a11818; }
+.badge-unverified { background: #f1f3f2; color: #4a5a52; }
+
+.report-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.report-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #35584a;
+}
+.report-form input,
+.report-form textarea {
+  border: 1px solid #d5ebe0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 500;
+  background: #fff;
+}
+.report-entry {
+  margin: 12px 0 28px;
+  text-align: center;
+}
+
+
+
+/* Pack risk + FDA recall panels */
+.risk-panel {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e6d7a8;
+  background: #fff9eb;
+}
+.risk-high {
+  border-color: #f0b4b4;
+  background: #fff5f5;
+}
+.risk-title {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #7a4e00;
+}
+.risk-high .risk-title {
+  color: #a11818;
+}
+.fda-recall-panel {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid #d7e3f4;
+  background: #f7faff;
+}
+.fda-recall-panel .risk-title {
+  color: #1d4f91;
+}
+.recall-row {
+  padding: 8px 0;
+  border-bottom: 1px solid #e3ebf5;
+}
+.recall-row:last-child {
+  border-bottom: none;
+}
+.recall-row strong {
+  display: block;
+  font-size: 0.82rem;
+  margin-bottom: 2px;
+}
+.recall-row small {
+  display: block;
+  color: #5a6f80;
+  font-size: 0.72rem;
+  margin-bottom: 4px;
+}
+.recall-row p {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: #2a3d4a;
+}
