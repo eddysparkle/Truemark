@@ -61,6 +61,7 @@
     if (!modal) return;
     modal.classList.add("open");
     modal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("auth-open");
     setAuthMode(mode || "login");
   }
 
@@ -69,6 +70,7 @@
     if (!modal) return;
     modal.classList.remove("open");
     modal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("auth-open");
     const err = $("authError");
     if (err) err.textContent = "";
   }
