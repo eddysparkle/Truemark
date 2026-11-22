@@ -559,9 +559,15 @@ async function lookupProduct(barcode) {
       showProductNotFound(
         barcode,
         data.message ||
-          "TrueMark could not find this barcode in the connected public catalogues."
+          "TrueMark could not find this barcode in the connected public catalogues.",
+        {
+          barcode_analysis: data.barcode_analysis || {},
+          sources_checked: data.sources_checked || [],
+          gs1_digital_link: data.gs1_digital_link || null,
+          next_steps: data.next_steps || []
+        }
       );
-      saveScan(barcode, "No catalogue match found", "TrueMark Worker");
+      saveScan(barcode, "Not yet identified", "TrueMark Worker");
       return;
     }
 
@@ -612,40 +618,211 @@ if (button) {
 
 }
 
-function showProductNotFound(barcode, message) {
+function showProductNotFound(barcode, message, meta = {}) {
   if (!scanResult) return;
 
-  scanResult.innerHTML = `
-    <h3>No catalogue match found</h3>
-    <p>Barcode: <strong>${escapeHTML(barcode)}</strong></p>
-    <div class="verification-warning">
-      <strong>This does not mean the product is fake</strong>
-      <p>
-        ${escapeHTML(
-          message ||
-            "TrueMark could not find this barcode in the connected public catalogues."
-        )}
-      </p>
-      <p>
-        Next step: photograph the product label so we can extract the name,
-        brand and any registration number on the pack.
-      </p>
-    </div>
-    <button id="scanAgain" class="scan-again-button" type="button">
-      Photograph product label
-    </button>
-  `;
+  const analysis = meta.barcode_analysis || {};
+  const sources = Array.isArray(meta.sources_checked) ? meta.sources_checked : [];
+  const gs1 = meta.gs1_digital_link || null;
+  const next = Array.isArray(meta.next_steps) ? meta.next_steps : [];
+
+  const sourcesHtml = sources.length
+    ? "<ul class=\"compact-steps\">" +
+      sources
+        .map(
+          (s) =>
+            "<li>" +
+            escapeHTML(s.name || s.key || "Source") +
+            (s.status ? " · " + escapeHTML(s.status) : "") +
+            "</li>"
+        )
+        .join("") +
+      "</ul>"
+    : "<p class=\"buy-note\">Open Facts family, UPCitemdb, TrueMark index, GS1 probe.</p>";
+
+  const formatLine = analysis.format
+    ? "<p><strong>Format:</strong> " +
+      escapeHTML(analysis.format) +
+      (analysis.check_digit_ok === true
+        ? " · check digit OK"
+        : analysis.check_digit_ok === false
+        ? " · check digit failed"
+        : "") +
+      "</p>"
+    : "";
+
+  const gs1Html = gs1
+    ? "<p class=\"buy-note\"><strong>GS1 Digital Link:</strong> " +
+      escapeHTML(gs1.note || (gs1.resolved ? "Resolver returned a target." : "No registered link.")) +
+      (gs1.final_url
+        ? ' <a href="' +
+          escapeHTML(gs1.final_url) +
+          '" target="_blank" rel="noopener noreferrer">Open link</a>'
+        : "") +
+      "</p>"
+    : "";
+
+  scanResult.innerHTML =
+    "<h3>Product not yet identified</h3>" +
+    "<p>Barcode: <strong>" +
+    escapeHTML(barcode) +
+    "</strong></p>" +
+    formatLine +
+    classificationBadgeHtml({
+      classification: "unverified",
+      classification_meaning:
+        "No reliable catalogue match yet. This is not proof the product is fake or unregistered."
+    }) +
+    '<div class="auth-card">' +
+    '<p class="auth-card-title">What TrueMark checked</p>' +
+    sourcesHtml +
+    gs1Html +
+    '<p class="auth-card-lead">' +
+    escapeHTML(
+      message ||
+        "No match in connected catalogues. Missing catalogue data never means counterfeit by itself."
+    ) +
+    "</p>" +
+    '<p class="auth-next-label">Continue verification</p>' +
+    '<ul class="auth-steps compact-steps">' +
+    "<li>Photograph the label — extract name, brand, NAFDAC, batch, expiry</li>" +
+    "<li>Search by the name printed on the pack</li>" +
+    "<li>Enter a NAFDAC number if present</li>" +
+    "<li>Optionally submit this barcode for TrueMark review (user-submitted, not verified)</li>" +
+    "</ul>" +
+    '<div class="auth-actions">' +
+    '<button id="notFoundLabelBtn" class="scan-again-button" type="button">Photograph product label</button>' +
+    '<button id="notFoundSearchBtn" class="scan-again-button" type="button">Search by product name</button>' +
+    '<button id="notFoundNafdacBtn" class="scan-again-button" type="button">Enter NAFDAC number</button>' +
+    '<button id="notFoundSubmitBtn" class="chip-btn" type="button">Submit product for review</button>' +
+    "</div>" +
+    '<p class="buy-note">A catalogue match later would still only identify a product record — not prove this physical item is genuine.</p>' +
+    "</div>" +
+    '<button id="scanAgain" class="scan-again-button" type="button">Scan another product</button>';
 
   scanResult.hidden = false;
 
   if (scannerStatus) {
     scannerStatus.textContent =
-      "No catalogue match. Label photo is the best next step.";
+      "No catalogue match yet — continue with label, name, or NAFDAC.";
   }
 
-  addScanAgainButton(() => {
-    if (labelImageInput) labelImageInput.click();
-  }, "Photograph product label");
+  const labelBtn = $("notFoundLabelBtn");
+  if (labelBtn) {
+    labelBtn.addEventListener("click", () => {
+      if (labelImageInput) labelImageInput.click();
+    });
+  }
+
+  const searchBtn = $("notFoundSearchBtn");
+  if (searchBtn) {
+    searchBtn.addEventListener("click", () => {
+      closeScanner();
+      const input = $("searchInput") || document.querySelector('input[type="search"], #productSearch, .search-input input');
+      if (input) {
+        input.focus();
+        showToast("Type the product name from the pack");
+      }
+    });
+  }
+
+  const nafdacBtn = $("notFoundNafdacBtn");
+  if (nafdacBtn) {
+    nafdacBtn.addEventListener("click", () => {
+      const manual = $("manualNafdacInput");
+      if (manual) {
+        manual.focus();
+        showToast("Enter the NAFDAC number from the pack");
+      } else {
+        openReportForm({ barcode: barcode, concern: "Need NAFDAC verification guidance" });
+      }
+    });
+  }
+
+  const submitBtn = $("notFoundSubmitBtn");
+  if (submitBtn) {
+    submitBtn.addEventListener("click", () => openProductSubmitForm(barcode));
+  }
+
+  addScanAgainButton();
+}
+
+async function submitProductToTrueMark(payload) {
+  const response = await fetch(
+    "https://truemark-ai.edialeeghonghon.workers.dev/products/submit",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }
+  );
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Submit service returned an invalid response.");
+  }
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || data.message || "Submit failed.");
+  }
+  return data;
+}
+
+function openProductSubmitForm(barcode) {
+  openScanner();
+  if (!scanResult) return;
+  scanResult.hidden = false;
+  scanResult.innerHTML =
+    '<button id="backToResults" class="back-link-btn" type="button">← Back</button>' +
+    "<h3>Submit product for review</h3>" +
+    '<p class="buy-note">User-submitted entries help grow TrueMark coverage. They are <strong>not</strong> independently verified and are labelled as user-submitted.</p>' +
+    '<form id="productSubmitForm" class="report-form">' +
+    '<label>Barcode<input name="barcode" value="' +
+    escapeHTML(barcode || "") +
+    '" readonly></label>' +
+    '<label>Product name<input name="product_name" required placeholder="As printed on pack"></label>' +
+    '<label>Brand<input name="brand" placeholder="Brand if known"></label>' +
+    '<label>NAFDAC number<input name="nafdac_number" placeholder="If printed"></label>' +
+    '<label>Category<input name="category" placeholder="Medicine, food, beauty…"></label>' +
+    '<label>Notes<textarea name="notes" rows="3" placeholder="Pack details, seller, anything useful"></textarea></label>' +
+    '<button type="submit" class="scan-again-button">Submit to TrueMark</button>' +
+    "</form>";
+
+  const back = $("backToResults");
+  if (back) {
+    back.addEventListener("click", () => {
+      showProductNotFound(barcode, "", {});
+    });
+  }
+
+  const form = $("productSubmitForm");
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const fd = new FormData(form);
+      const payload = Object.fromEntries(fd.entries());
+      try {
+        showToast("Submitting…");
+        const data = await submitProductToTrueMark(payload);
+        scanResult.innerHTML =
+          "<h3>Submitted for review</h3>" +
+          classificationBadgeHtml({
+            classification: "unverified",
+            classification_meaning:
+              "User-submitted. Not independently verified. Not an authenticity result."
+          }) +
+          "<p>" +
+          escapeHTML(data.message || "Thank you.") +
+          "</p>" +
+          '<button id="scanAgain" class="scan-again-button" type="button">Done</button>';
+        addScanAgainButton();
+        saveScan(barcode, payload.product_name || "User submitted", "User submitted");
+        showToast("Product submitted");
+      } catch (error) {
+        showToast(error.message || "Submit failed");
+      }
+    });
+  }
 }
 
 function showProductUnavailable(barcode, reason) {
@@ -2499,6 +2676,6 @@ INITIALISE TRUEMARK
 ========================= */
 displayHistory();
 
-console.log("TrueMark 2.0 Phase 2 initialised.");
+console.log("TrueMark 2.0 barcode intelligence initialised.");
 
 });
