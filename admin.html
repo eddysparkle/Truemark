@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TrueMark Admin</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 80px; }
+    .wrap h1 { color: #0b6e4f; font-size: 1.35rem; }
+    .card {
+      background: #fff; border: 1px solid #d7ebe2; border-radius: 14px;
+      padding: 14px; margin: 12px 0;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #e8f0ec; vertical-align: top; }
+    .muted { color: #5a6f66; font-size: 0.82rem; }
+    label { display: block; font-size: 0.8rem; font-weight: 700; margin: 8px 0 4px; }
+    input, select { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 1px solid #cfe0d8; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a href="./business.html">← Business portal</a> · <a href="./">Consumer app</a></p>
+    <h1>TrueMark Admin</h1>
+    <p class="muted">Approve manufacturers, adjust plan prices, view revenue. Set <code>ADMIN_USER_IDS</code> on the Worker to your user id(s).</p>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px;font-size:1rem;">Sign in</h2>
+      <label>Email <input id="email" type="email" /></label>
+      <label>Password <input id="password" type="password" /></label>
+      <button type="button" class="scan-again-button" id="btnLogin" style="margin-top:10px;">Sign in</button>
+      <p class="muted" id="who">Not signed in</p>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px;font-size:1rem;">Platform stats</h2>
+      <pre id="stats" class="muted" style="white-space:pre-wrap;"></pre>
+      <button type="button" class="chip-btn" id="btnStats">Refresh stats</button>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px;font-size:1rem;">Businesses</h2>
+      <div id="bizTable" class="muted">Load after sign-in</div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px;font-size:1rem;">Update plan pricing</h2>
+      <label>Plan code
+        <select id="planCode">
+          <option value="starter">starter</option>
+          <option value="professional">professional</option>
+          <option value="business">business</option>
+          <option value="enterprise">enterprise</option>
+        </select>
+      </label>
+      <label>Monthly price (kobo) <input id="priceMonthly" type="number" placeholder="2500000 = ₦25,000" /></label>
+      <label>Annual price (kobo) <input id="priceAnnual" type="number" /></label>
+      <label>Max products <input id="maxProducts" type="number" /></label>
+      <button type="button" class="scan-again-button" id="btnPlan" style="margin-top:10px;">Save plan</button>
+      <p id="planMsg" class="muted"></p>
+    </div>
+  </div>
+  <script>
+  const API = "https://truemark-ai.edialeeghonghon.workers.dev";
+  const TOKEN_KEY = "truemark_auth_token";
+  const $ = (id) => document.getElementById(id);
+  const token = () => localStorage.getItem(TOKEN_KEY) || "";
+  const headers = () => ({
+    "Content-Type": "application/json",
+    ...(token() ? { Authorization: "Bearer " + token() } : {})
+  });
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || String(res.status));
+    return data;
+  }
+
+  $("btnLogin").onclick = async () => {
+    try {
+      const data = await api("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: $("email").value.trim(), password: $("password").value })
+      });
+      if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
+      $("who").textContent = "Signed in as " + (data.user?.email || "") + " · id: " + (data.user?.id || "");
+      await loadAll();
+    } catch (e) {
+      $("who").textContent = e.message;
+    }
+  };
+
+  async function loadStats() {
+    const data = await api("/admin/stats");
+    const s = data.stats || {};
+    $("stats").textContent = JSON.stringify(s, null, 2) +
+      "\n\nRevenue (NGN): " + ((s.revenue_kobo || 0) / 100).toLocaleString();
+  }
+
+  async function loadBusinesses() {
+    const data = await api("/admin/businesses");
+    const rows = data.businesses || [];
+    if (!rows.length) {
+      $("bizTable").textContent = "No businesses yet.";
+      return;
+    }
+    $("bizTable").innerHTML =
+      "<table><thead><tr><th>Company</th><th>Status</th><th>Plan</th><th>Actions</th></tr></thead><tbody>" +
+      rows
+        .map((b) => {
+          return (
+            "<tr><td>" +
+            (b.legal_name || "") +
+            "<br/><span class='muted'>" +
+            (b.email || "") +
+            "</span></td><td>" +
+            b.status +
+            "</td><td>" +
+            (b.plan_code || "") +
+            "</td><td>" +
+            "<button type='button' data-id='" +
+            b.id +
+            "' data-status='approved' class='chip-btn approve'>Approve</button> " +
+            "<button type='button' data-id='" +
+            b.id +
+            "' data-status='rejected' class='chip-btn reject'>Reject</button> " +
+            "<button type='button' data-id='" +
+            b.id +
+            "' data-status='suspended' class='chip-btn'>Suspend</button>" +
+            "</td></tr>"
+          );
+        })
+        .join("") +
+      "</tbody></table>";
+
+    $("bizTable").querySelectorAll("button[data-id]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await api("/admin/businesses/status", {
+            method: "POST",
+            body: JSON.stringify({
+              business_id: btn.getAttribute("data-id"),
+              status: btn.getAttribute("data-status")
+            })
+          });
+          await loadBusinesses();
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
+  }
+
+  async function loadAll() {
+    try {
+      await loadStats();
+      await loadBusinesses();
+    } catch (e) {
+      $("stats").textContent = e.message;
+    }
+  }
+
+  $("btnStats").onclick = () => loadAll();
+  $("btnPlan").onclick = async () => {
+    try {
+      const body = { code: $("planCode").value };
+      if ($("priceMonthly").value) body.price_monthly_kobo = Number($("priceMonthly").value);
+      if ($("priceAnnual").value) body.price_annual_kobo = Number($("priceAnnual").value);
+      if ($("maxProducts").value) body.max_products = Number($("maxProducts").value);
+      await api("/admin/plans", { method: "POST", body: JSON.stringify(body) });
+      $("planMsg").textContent = "Plan updated.";
+    } catch (e) {
+      $("planMsg").textContent = e.message;
+    }
+  };
+
+  if (token()) {
+    $("who").textContent = "Session present — loading…";
+    loadAll();
+  }
+  </script>
+</body>
+</html>
