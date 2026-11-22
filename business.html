@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TrueMark for Business</title>
+  <meta name="description" content="Manufacturer portal — product registration, analytics, and subscription management." />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .biz-wrap { max-width: 720px; margin: 0 auto; padding: 20px 16px 80px; }
+    .biz-wrap h1 { color: #0b6e4f; font-size: 1.4rem; margin: 0 0 8px; }
+    .biz-card {
+      background: #fff; border: 1px solid #d7ebe2; border-radius: 16px;
+      padding: 16px; margin: 14px 0; box-shadow: 0 8px 24px rgba(11,110,79,.06);
+    }
+    .biz-card h2 { margin: 0 0 10px; font-size: 1rem; color: #12352a; }
+    .plan-grid { display: grid; gap: 10px; }
+    @media (min-width: 640px) { .plan-grid { grid-template-columns: 1fr 1fr; } }
+    .plan {
+      border: 1px solid #d5ebe0; border-radius: 14px; padding: 12px; background: #f7fbf8;
+    }
+    .plan strong { display: block; color: #0b6e4f; margin-bottom: 4px; }
+    .plan .price { font-size: 1.1rem; font-weight: 800; margin: 6px 0; }
+    .muted { color: #5a6f66; font-size: 0.82rem; line-height: 1.45; }
+    .biz-wrap label { display: block; font-size: 0.8rem; font-weight: 700; margin: 8px 0 4px; }
+    .biz-wrap input, .biz-wrap select, .biz-wrap textarea {
+      width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid #cfe0d8; font: inherit;
+    }
+    .status-pill {
+      display: inline-block; padding: 4px 10px; border-radius: 999px;
+      font-size: 0.72rem; font-weight: 800; background: #eef6f1; color: #0b6e4f;
+    }
+    .status-pending { background: #fff6e5; color: #8a5a00; }
+    .status-suspended { background: #fdecec; color: #a11818; }
+    .trust-box {
+      border-left: 3px solid #0b6e4f; background: #f3faf6; padding: 10px 12px;
+      border-radius: 8px; font-size: 0.78rem; color: #35584a; margin: 12px 0;
+    }
+    .top-links { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    .top-links a { color: #0b6e4f; font-weight: 700; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="biz-wrap">
+    <div class="top-links">
+      <a href="./">← Consumer app</a>
+      <a href="./admin.html">Admin</a>
+    </div>
+    <h1>TrueMark for Business</h1>
+    <p class="muted">Register your company, list products, and subscribe for analytics and brand-protection tools. Paid plans never buy a “genuine” stamp or hide safety reports.</p>
+
+    <div class="trust-box">
+      <strong>Trust rules</strong><br />
+      Consumers keep free safety checks. Manufacturer registration ≠ NAFDAC verification.
+      Unit authentication only applies when you issue and consumers verify manufacturer codes.
+    </div>
+
+    <div class="biz-card" id="authCard">
+      <h2>Account</h2>
+      <p class="muted" id="authStatus">Checking session…</p>
+      <p class="muted">Use the same email/password as the consumer TrueMark app (profile icon → Sign in).</p>
+      <label>Email <input id="email" type="email" autocomplete="email" /></label>
+      <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
+      <label>Display name (signup) <input id="displayName" type="text" /></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+        <button type="button" class="scan-again-button" id="btnLogin">Sign in</button>
+        <button type="button" class="chip-btn" id="btnSignup">Sign up</button>
+        <button type="button" class="chip-btn" id="btnLogout">Sign out</button>
+      </div>
+      <p class="auth-error" id="authError"></p>
+    </div>
+
+    <div class="biz-card" id="registerCard">
+      <h2>Company registration</h2>
+      <label>Legal name <input id="legalName" required /></label>
+      <label>Trading name <input id="tradingName" /></label>
+      <label>Business email <input id="bizEmail" type="email" /></label>
+      <label>Phone <input id="phone" /></label>
+      <label>CAC / registration no. <input id="regNo" /></label>
+      <label>Website <input id="website" /></label>
+      <button type="button" class="scan-again-button" id="btnRegister" style="margin-top:12px;">Submit application</button>
+      <p class="muted" id="bizStatus"></p>
+    </div>
+
+    <div class="biz-card" id="dashboardCard">
+      <h2>Dashboard</h2>
+      <p id="dashSummary" class="muted">Sign in to load your business.</p>
+      <div id="dashDetail"></div>
+    </div>
+
+    <div class="biz-card">
+      <h2>Plans</h2>
+      <div class="plan-grid" id="planGrid"><p class="muted">Loading…</p></div>
+      <label style="margin-top:12px;">Billing cycle
+        <select id="billingCycle">
+          <option value="monthly">Monthly</option>
+          <option value="annual">Annual</option>
+        </select>
+      </label>
+      <label>Plan to purchase
+        <select id="planSelect">
+          <option value="professional">Professional</option>
+          <option value="business">Business</option>
+        </select>
+      </label>
+      <button type="button" class="scan-again-button" id="btnCheckout" style="margin-top:12px;">Pay with Paystack</button>
+      <p class="muted">Checkout requires an <strong>approved</strong> business. Activation happens only after Paystack confirms payment (webhook or server verify).</p>
+    </div>
+
+    <div class="biz-card">
+      <h2>Add product</h2>
+      <p class="muted">Manufacturer-registered entries are labelled as such — not as regulator-verified.</p>
+      <label>Name <input id="prodName" /></label>
+      <label>Brand <input id="prodBrand" /></label>
+      <label>Barcode / GTIN <input id="prodBarcode" /></label>
+      <label>NAFDAC (if any) <input id="prodNafdac" /></label>
+      <label>Category <input id="prodCategory" /></label>
+      <button type="button" class="scan-again-button" id="btnAddProduct" style="margin-top:12px;">Save product</button>
+      <div id="productList" class="muted" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="biz-card">
+      <h2>Issue auth codes (premium)</h2>
+      <p class="muted">Codes are shown once. TrueMark stores only hashes. Requires plan capacity.</p>
+      <label>How many <input id="codeCount" type="number" min="1" max="50" value="5" /></label>
+      <button type="button" class="scan-again-button" id="btnCodes" style="margin-top:12px;">Generate codes</button>
+      <pre id="codeOut" class="muted" style="white-space:pre-wrap;font-size:0.75rem;"></pre>
+    </div>
+  </div>
+
+  <script>
+  const API = "https://truemark-ai.edialeeghonghon.workers.dev";
+  const TOKEN_KEY = "truemark_auth_token";
+  const USER_KEY = "truemark_auth_user";
+
+  const $ = (id) => document.getElementById(id);
+  const token = () => localStorage.getItem(TOKEN_KEY) || "";
+  const authHeaders = () => ({
+    "Content-Type": "application/json",
+    ...(token() ? { Authorization: "Bearer " + token() } : {})
+  });
+
+  function setError(msg) {
+    const el = $("authError");
+    if (el) el.textContent = msg || "";
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, {
+      ...options,
+      headers: { ...authHeaders(), ...(options.headers || {}) }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || res.statusText);
+    return data;
+  }
+
+  async function login(isSignup) {
+    setError("");
+    const email = $("email").value.trim();
+    const password = $("password").value;
+    const path = isSignup ? "/auth/signup" : "/auth/login";
+    const body = { email, password };
+    if (isSignup) body.display_name = $("displayName").value.trim();
+    try {
+      const data = await api(path, { method: "POST", body: JSON.stringify(body) });
+      if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
+      if (data.user) localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      $("authStatus").textContent = "Signed in as " + (data.user?.email || email);
+      await refreshBiz();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    $("authStatus").textContent = "Signed out.";
+  }
+
+  async function refreshBiz() {
+    try {
+      const data = await api("/business/me");
+      const b = data.business;
+      if (!b) {
+        $("dashSummary").textContent = "No company registered yet.";
+        $("dashDetail").innerHTML = "";
+        $("productList").textContent = "";
+        return;
+      }
+      const pill =
+        b.status === "approved"
+          ? "status-pill"
+          : b.status === "pending"
+          ? "status-pill status-pending"
+          : "status-pill status-suspended";
+      $("dashSummary").innerHTML =
+        "<span class=\"" + pill + "\">" + b.status + "</span> · " +
+        (b.legal_name || "") + " · plan <strong>" + (b.plan_code || "starter") + "</strong>";
+      $("dashDetail").innerHTML =
+        "<p class=\"muted\">Subscription live: <strong>" +
+        (data.subscription_live ? "yes" : "no") +
+        "</strong></p>" +
+        "<p class=\"muted\">Products on file: " + (data.products || []).length + "</p>";
+      $("productList").innerHTML = (data.products || [])
+        .map(
+          (p) =>
+            "<div style=\"padding:8px 0;border-bottom:1px solid #e8f0ec\"><strong>" +
+            (p.name || "") +
+            "</strong><br/><span class=\"muted\">" +
+            [p.brand, p.barcode, p.nafdac_number].filter(Boolean).join(" · ") +
+            " · " +
+            (p.record_type || "") +
+            "</span></div>"
+        )
+        .join("") || "No products yet.";
+    } catch (e) {
+      $("dashSummary").textContent = e.message;
+    }
+  }
+
+  async function loadPlans() {
+    try {
+      const data = await api("/business/plans");
+      $("planGrid").innerHTML = (data.plans || [])
+        .map((p) => {
+          const monthly = Number(p.price_monthly_kobo || 0) / 100;
+          const price =
+            p.code === "enterprise"
+              ? "Custom"
+              : monthly === 0
+              ? "Free"
+              : "₦" + monthly.toLocaleString();
+          return (
+            "<div class=\"plan\"><strong>" +
+            p.name +
+            "</strong><div class=\"price\">" +
+            price +
+            (monthly ? "/mo" : "") +
+            "</div><p class=\"muted\">" +
+            (p.description || "") +
+            "</p><p class=\"muted\">Max products: " +
+            p.max_products +
+            "</p></div>"
+          );
+        })
+        .join("");
+    } catch (e) {
+      $("planGrid").textContent = e.message;
+    }
+  }
+
+  $("btnLogin").onclick = () => login(false);
+  $("btnSignup").onclick = () => login(true);
+  $("btnLogout").onclick = logout;
+
+  $("btnRegister").onclick = async () => {
+    try {
+      const data = await api("/business/register", {
+        method: "POST",
+        body: JSON.stringify({
+          legal_name: $("legalName").value,
+          trading_name: $("tradingName").value,
+          email: $("bizEmail").value,
+          phone: $("phone").value,
+          registration_number: $("regNo").value,
+          website: $("website").value
+        })
+      });
+      $("bizStatus").textContent = data.message || "Submitted.";
+      await refreshBiz();
+    } catch (e) {
+      $("bizStatus").textContent = e.message;
+    }
+  };
+
+  $("btnAddProduct").onclick = async () => {
+    try {
+      await api("/business/products", {
+        method: "POST",
+        body: JSON.stringify({
+          name: $("prodName").value,
+          brand: $("prodBrand").value,
+          barcode: $("prodBarcode").value,
+          nafdac_number: $("prodNafdac").value,
+          category: $("prodCategory").value
+        })
+      });
+      await refreshBiz();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $("btnCheckout").onclick = async () => {
+    try {
+      const data = await api("/business/checkout", {
+        method: "POST",
+        body: JSON.stringify({
+          plan_code: $("planSelect").value,
+          billing_cycle: $("billingCycle").value,
+          callback_url: location.href.split("#")[0]
+        })
+      });
+      if (data.authorization_url) location.href = data.authorization_url;
+      else alert(data.error || "No checkout URL");
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  $("btnCodes").onclick = async () => {
+    try {
+      const data = await api("/business/auth-codes", {
+        method: "POST",
+        body: JSON.stringify({ count: Number($("codeCount").value) || 5 })
+      });
+      $("codeOut").textContent = (data.codes || [])
+        .map((c) => c.code)
+        .join("\n");
+      if (data.warning) $("codeOut").textContent += "\n\n" + data.warning;
+    } catch (e) {
+      $("codeOut").textContent = e.message;
+    }
+  };
+
+  // Return from Paystack with ?reference=
+  (async function boot() {
+    const params = new URLSearchParams(location.search);
+    const reference = params.get("reference") || params.get("trxref");
+    if (reference && token()) {
+      try {
+        await api("/business/verify-payment", {
+          method: "POST",
+          body: JSON.stringify({ reference })
+        });
+        alert("Payment verified. Subscription activated if Paystack confirmed success.");
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+    if (token()) {
+      $("authStatus").textContent = "Session found.";
+      await refreshBiz();
+    } else {
+      $("authStatus").textContent = "Not signed in.";
+    }
+    await loadPlans();
+  })();
+  </script>
+</body>
+</html>
