@@ -1,13 +1,13 @@
 /**
  * TrueMark API — Cloudflare Workers + D1 + Workers AI
- * Version 7.0.0 — TrueMark 2.0 Phase 2 — pack risk + FDA recalls
+ * Version 7.0.0 — TrueMark 2.0 Phase 2.1 — multi-source barcode intelligence
  *
  * Database-first product identification and safety-information service.
  * IMPORTANT: catalogue matches are not proof of physical authenticity.
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '7.1.0';
+const VERSION = '7.2.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -499,6 +499,254 @@ async function updateSourceStatus(db, sourceKey, status, error = '') {
 /* Public catalogue connectors                                                */
 /* -------------------------------------------------------------------------- */
 
+
+/* -------------------------------------------------------------------------- */
+/* Barcode format validation + multi-source intelligence                      */
+/* -------------------------------------------------------------------------- */
+
+function gtinCheckDigitValid(digits) {
+  const s = String(digits).replace(/\D/g, '');
+  if (!/^\d{8}$|^\d{12}$|^\d{13}$|^\d{14}$/.test(s)) return false;
+  let sum = 0;
+  const body = s.slice(0, -1);
+  const check = parseInt(s.slice(-1), 10);
+  // From rightmost of body
+  const rev = body.split('').reverse();
+  for (let i = 0; i < rev.length; i += 1) {
+    const n = parseInt(rev[i], 10);
+    sum += (i % 2 === 0) ? n * 3 : n;
+  }
+  const calc = (10 - (sum % 10)) % 10;
+  return calc === check;
+}
+
+function expandUpceToUpca(upce) {
+  const d = String(upce).replace(/\D/g, '');
+  if (d.length === 8) {
+    // include number system + check
+    const ns = d[0];
+    const mid = d.slice(1, 7);
+    const check = d[7];
+    const last = mid[5];
+    let body = '';
+    if (last >= '0' && last <= '2') {
+      body = mid.slice(0, 2) + last + '0000' + mid.slice(2, 5);
+    } else if (last === '3') {
+      body = mid.slice(0, 3) + '00000' + mid.slice(3, 5);
+    } else if (last === '4') {
+      body = mid.slice(0, 4) + '00000' + mid[4];
+    } else {
+      body = mid.slice(0, 5) + '0000' + last;
+    }
+    return ns + body + check;
+  }
+  if (d.length === 7) {
+    return expandUpceToUpca('0' + d);
+  }
+  return null;
+}
+
+function analyzeBarcode(raw) {
+  const original = clean(raw, 80);
+  const digits = original.replace(/\D/g, '');
+  const result = {
+    original,
+    digits,
+    format: 'unknown',
+    valid_structure: false,
+    check_digit_ok: null,
+    normalized_gtin13: '',
+    candidates: []
+  };
+
+  if (!digits) {
+    result.format = 'non_numeric';
+    result.candidates = [original].filter(Boolean);
+    return result;
+  }
+
+  if (digits.length === 8 && gtinCheckDigitValid(digits)) {
+    result.format = 'EAN-8';
+    result.valid_structure = true;
+    result.check_digit_ok = true;
+    result.normalized_gtin13 = digits.padStart(13, '0');
+  } else if (digits.length === 12 && gtinCheckDigitValid(digits)) {
+    result.format = 'UPC-A';
+    result.valid_structure = true;
+    result.check_digit_ok = true;
+    result.normalized_gtin13 = '0' + digits;
+  } else if (digits.length === 13 && gtinCheckDigitValid(digits)) {
+    result.format = 'EAN-13';
+    result.valid_structure = true;
+    result.check_digit_ok = true;
+    result.normalized_gtin13 = digits;
+  } else if (digits.length === 14 && gtinCheckDigitValid(digits)) {
+    result.format = 'GTIN-14';
+    result.valid_structure = true;
+    result.check_digit_ok = true;
+    result.normalized_gtin13 = digits.slice(-13);
+  } else if (digits.length === 8 || digits.length === 7) {
+    const upca = expandUpceToUpca(digits.length === 7 ? '0' + digits : digits);
+    if (upca && gtinCheckDigitValid(upca)) {
+      result.format = 'UPC-E';
+      result.valid_structure = true;
+      result.check_digit_ok = true;
+      result.normalized_gtin13 = '0' + upca;
+    } else {
+      result.format = digits.length === 8 ? 'EAN-8_or_UPC-E' : 'short_code';
+      result.valid_structure = false;
+      result.check_digit_ok = gtinCheckDigitValid(digits);
+    }
+  } else if (/^https?:\/\//i.test(original) || original.includes('http')) {
+    result.format = 'QR_or_URL';
+    result.valid_structure = true;
+  } else {
+    result.format = 'other';
+    result.check_digit_ok = digits.length >= 8 ? gtinCheckDigitValid(digits) : null;
+  }
+
+  const set = new Set();
+  [original, digits, result.normalized_gtin13].forEach((v) => {
+    if (v) set.add(v);
+  });
+  if (result.normalized_gtin13 && result.normalized_gtin13.startsWith('0') && result.normalized_gtin13.length === 13) {
+    set.add(result.normalized_gtin13.slice(1)); // UPC-A form
+  }
+  result.candidates = [...set];
+  return result;
+}
+
+async function lookupUpcItemDb(barcode, env) {
+  // Free trial tier: ~100 requests/day/IP, no key required.
+  // Paid key via env.UPCITEMDB_KEY uses /prod/v1
+  const key = env && env.UPCITEMDB_KEY ? clean(env.UPCITEMDB_KEY, 120) : '';
+  const base = key
+    ? 'https://api.upcitemdb.com/prod/v1/lookup'
+    : 'https://api.upcitemdb.com/prod/trial/lookup';
+  const headers = {
+    Accept: 'application/json',
+    'Accept-Encoding': 'gzip'
+  };
+  if (key) {
+    headers.user_key = key;
+    headers.key_type = '3scale';
+  }
+  try {
+    const data = await fetchJson(
+      `${base}?upc=${encodeURIComponent(barcode)}`,
+      { headers },
+      8000
+    );
+    const item = (data.items || [])[0];
+    if (!item) return null;
+    return {
+      source: {
+        key: 'upcitemdb',
+        name: 'UPCitemdb',
+        category: 'General products'
+      },
+      product: {
+        name: item.title || '',
+        brand: item.brand || '',
+        manufacturer: item.brand || '',
+        category: (item.category || item.lowest_recorded_price && 'General') || 'Other',
+        description: item.description || '',
+        image_url: (item.images && item.images[0]) || '',
+        country_of_origin: '',
+        barcode,
+        confidence: 'public_catalogue'
+      },
+      url: `https://www.upcitemdb.com/upc/${encodeURIComponent(barcode)}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function probeGs1DigitalLink(gtin13) {
+  // GS1 Digital Link resolver: free unauthenticated resolve attempt.
+  // Many GTINs have no registered links — that is not an authenticity verdict.
+  const gtin = String(gtin13 || '').replace(/\D/g, '');
+  if (gtin.length !== 13) return null;
+  const url = `https://id.gs1.org/01/${gtin}`;
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/ld+json, application/json, text/html',
+        'User-Agent': 'TrueMark/7.2 (product-identification; +https://eddysparkle.github.io/Truemark/)'
+      },
+      redirect: 'follow'
+    });
+    const finalUrl = response.url || url;
+    if (!response.ok) {
+      return {
+        resolved: false,
+        resolver: 'id.gs1.org',
+        requested: url,
+        status: response.status,
+        note: 'No GS1 Digital Link target returned for this GTIN.'
+      };
+    }
+    // If still on gs1.org with error page, treat as unresolved product data
+    const contentType = response.headers.get('content-type') || '';
+    let linkset = null;
+    if (contentType.includes('json')) {
+      try {
+        linkset = await response.json();
+      } catch {
+        linkset = null;
+      }
+    }
+    return {
+      resolved: finalUrl !== url || !!linkset,
+      resolver: 'id.gs1.org',
+      requested: url,
+      final_url: finalUrl,
+      has_linkset: !!linkset,
+      note: 'GS1 Digital Link resolution indicates registered web links for this GTIN when present. It is not a product authenticity certificate.'
+    };
+  } catch {
+    return {
+      resolved: false,
+      resolver: 'id.gs1.org',
+      requested: url,
+      note: 'GS1 resolver unreachable.'
+    };
+  }
+}
+
+async function lookupOpenFoodFactsUniversal(barcode) {
+  // product_type=all redirects across food/beauty/pet/product databases
+  try {
+    const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json?product_type=all&fields=code,product_name,product_name_en,brands,categories,quantity,image_url,manufacturing_places,countries,ingredients_text,generic_name,product_type`;
+    const data = await fetchJson(url, {}, 8000);
+    if (data.status !== 1 || !data.product) return null;
+    const raw = data.product;
+    const type = raw.product_type || 'food';
+    const sourceKey =
+      type === 'beauty' ? 'open_beauty_facts' :
+      type === 'petfood' ? 'open_pet_food_facts' :
+      type === 'product' ? 'open_products_facts' : 'open_food_facts';
+    const sourceName =
+      type === 'beauty' ? 'Open Beauty Facts' :
+      type === 'petfood' ? 'Open Pet Food Facts' :
+      type === 'product' ? 'Open Products Facts' : 'Open Food Facts';
+    return {
+      source: { key: sourceKey, name: sourceName, category: type },
+      product: catalogueProduct(
+        { key: sourceKey, name: sourceName, category: type },
+        raw,
+        barcode
+      ),
+      url: `https://world.openfoodfacts.org/product/${encodeURIComponent(barcode)}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+
 function catalogueProduct(source, raw, barcode) {
   return {
     name: raw.product_name || raw.product_name_en || raw.product_name_fr || '',
@@ -543,50 +791,149 @@ async function lookupAllCatalogues(barcode) {
 }
 
 async function verifyBarcode(barcodeValue, env) {
-  const barcode = clean(barcodeValue, 80);
+  const analysis = analyzeBarcode(barcodeValue);
+  const barcode = analysis.digits || analysis.original;
 
-  if (!/^[0-9A-Za-z-]{6,80}$/.test(barcode)) {
-    return makeResult('needs_check', 'Barcode needs checking', 'Enter a valid barcode and try again.');
-  }
-
-  const db = requireDatabase(env);
-  const existing = await getProductByBarcode(db, barcode);
-
-  if (existing) {
-    const sources = await getProductSources(db, existing.id);
-    const result = makeResult(
-      'catalogue_match',
-      'Product found in TrueMark',
-      'A previously indexed catalogue record matches this barcode. This does not authenticate the physical item.',
-      sources,
-      { product: existing, record_type: 'catalogue' }
+  if (!barcode || barcode.length < 6) {
+    return makeResult(
+      'needs_check',
+      'Barcode needs checking',
+      'Enter or scan a valid barcode (EAN-13, UPC-A, UPC-E, EAN-8, or GTIN).',
+      [],
+      {
+        barcode_analysis: analysis,
+        next_steps: [
+          'Rescan the barcode in good light',
+          'Or photograph the product label for AI extraction',
+          'Or search by product name'
+        ]
+      }
     );
-    await saveVerification(db, {
-      product_id: existing.id,
-      product_name: existing.name,
-      barcode,
-      category: existing.category,
-      status: result.status,
-      sources
-    });
-    return result;
   }
 
-  const cached = await getCached(db, `barcode:${barcode}`);
-  const matches = cached || await lookupAllCatalogues(barcode);
+  const sourcesChecked = [];
+  const db = requireDatabase(env);
 
-  if (!cached) {
-    await putCached(db, `barcode:${barcode}`, matches, 12);
+  // 1) TrueMark D1 index
+  sourcesChecked.push({ key: 'truemark_d1', name: 'TrueMark index', status: 'checked' });
+  for (const candidate of analysis.candidates) {
+    const existing = await getProductByBarcode(db, candidate);
+    if (existing) {
+      const sources = await getProductSources(db, existing.id);
+      const result = makeResult(
+        'catalogue_match',
+        'Product found in TrueMark',
+        'A previously indexed record matches this barcode. This does not authenticate the physical item.',
+        sources,
+        {
+          product: existing,
+          record_type: existing.confidence === 'user_submitted' ? 'user_submitted' : 'catalogue',
+          barcode_analysis: analysis,
+          sources_checked: sourcesChecked,
+          evidence: {
+            what_was_checked: ['TrueMark product index', 'Barcode format'],
+            what_matched: ['Barcode identifier in TrueMark index'],
+            remains_unverified: ['Physical pack authenticity', 'Regulatory registration for this unit']
+          }
+        }
+      );
+      await saveVerification(db, {
+        product_id: existing.id,
+        product_name: existing.name,
+        barcode: candidate,
+        category: existing.category,
+        status: result.status,
+        sources
+      });
+      return result;
+    }
+  }
+
+  // 2) Open Food Facts family (multi + universal)
+  let matches = [];
+  const cached = await getCached(db, `barcode:v2:${analysis.normalized_gtin13 || barcode}`);
+  if (cached && Array.isArray(cached.matches)) {
+    matches = cached.matches;
+    sourcesChecked.push({ key: 'cache', name: 'Response cache', status: 'hit' });
+  } else {
+    sourcesChecked.push({ key: 'open_facts', name: 'Open Food/Beauty/Products Facts', status: 'checked' });
+    const openMatches = await lookupAllCatalogues(analysis.candidates[0] || barcode);
+    matches.push(...openMatches);
+
+    // Try alternate candidate codes
+    for (const candidate of analysis.candidates.slice(1, 3)) {
+      if (matches.length) break;
+      const more = await lookupAllCatalogues(candidate);
+      matches.push(...more);
+    }
+
+    // Universal product_type=all
+    if (!matches.length) {
+      for (const candidate of analysis.candidates.slice(0, 2)) {
+        const uni = await lookupOpenFoodFactsUniversal(candidate);
+        if (uni) {
+          matches.push(uni);
+          break;
+        }
+      }
+    }
+
+    // 3) UPCitemdb (free trial / optional key)
+    sourcesChecked.push({ key: 'upcitemdb', name: 'UPCitemdb', status: 'checked' });
+    if (!matches.length) {
+      for (const candidate of analysis.candidates.slice(0, 2)) {
+        const upc = await lookupUpcItemDb(candidate, env);
+        if (upc) {
+          matches.push(upc);
+          break;
+        }
+      }
+    }
+
+    await putCached(db, `barcode:v2:${analysis.normalized_gtin13 || barcode}`, { matches }, 12);
+  }
+
+  // 4) GS1 Digital Link probe (informational)
+  let gs1 = null;
+  if (analysis.normalized_gtin13) {
+    sourcesChecked.push({ key: 'gs1_digital_link', name: 'GS1 Digital Link (id.gs1.org)', status: 'probed' });
+    gs1 = await probeGs1DigitalLink(analysis.normalized_gtin13);
   }
 
   if (!matches.length) {
     const result = makeResult(
       'not_found',
-      'No catalogue match found',
-      'TrueMark could not find this barcode in the connected public catalogues. This does not mean the product is fake, unsafe or unregistered.'
+      'Not yet identified in connected catalogues',
+      'This barcode was not found in TrueMark index, Open Facts databases, or UPCitemdb. That does not mean the product is fake, unregistered, or unsafe.',
+      [],
+      {
+        product: null,
+        barcode_analysis: analysis,
+        sources_checked: sourcesChecked,
+        gs1_digital_link: gs1,
+        next_steps: [
+          'Photograph the product label for AI extraction of name, brand, NAFDAC, batch and expiry',
+          'Search by product name if you can read it',
+          'Enter any NAFDAC number printed on the pack',
+          'Submit the product for TrueMark review (user-submitted, not verified)'
+        ],
+        evidence: {
+          what_was_checked: sourcesChecked.map((s) => s.name),
+          what_matched: [],
+          remains_unverified: [
+            'Product identity',
+            'Regulatory registration',
+            'Physical authenticity'
+          ]
+        }
+      }
     );
     await saveVerification(db, {
-      product_name: '', barcode, category: '', status: result.status, sources: []
+      product_name: '',
+      barcode,
+      category: '',
+      status: result.status,
+      sources: []
     });
     return result;
   }
@@ -615,25 +962,53 @@ async function verifyBarcode(barcodeValue, env) {
     });
   }
 
-  const sources = matches.map((match) => sourceInfo(
-    match.source.name,
-    match.url,
-    'public_catalogue'
-  ));
+  const sources = matches.map((match) =>
+    sourceInfo(match.source.name, match.url, 'public_catalogue')
+  );
+
+  // Optional FDA recall hint by product name
+  let fda_recalls = [];
+  try {
+    const term = first.product.name || first.product.brand || '';
+    if (term && term.length >= 4) {
+      fda_recalls = (await lookupFdaRecalls(env, term.split(/\s+/)[0])).slice(0, 3);
+    }
+  } catch (_) {}
 
   const result = makeResult(
     'catalogue_match',
-    'Product identified',
-    'A public product catalogue contains a matching barcode. Regulatory approval, safety and physical authenticity have not been established.',
+    'Product information matched',
+    'A public or indexed catalogue contains a matching barcode. Regulatory approval, safety, and physical authenticity have not been established for this unit.',
     sources,
-    { product, record_type: 'catalogue' }
+    {
+      product,
+      matches: matches.map((m) => ({
+        source: m.source.name,
+        product: m.product,
+        url: m.url
+      })),
+      barcode_analysis: analysis,
+      sources_checked: sourcesChecked,
+      gs1_digital_link: gs1,
+      fda_recalls,
+      record_type: 'catalogue',
+      evidence: {
+        what_was_checked: sourcesChecked.map((s) => s.name),
+        what_matched: sources.map((s) => s.name),
+        remains_unverified: [
+          'Physical pack authenticity',
+          'Batch-specific serialisation',
+          'Country-specific regulatory status'
+        ]
+      }
+    }
   );
 
   await saveVerification(db, {
     product_id: product.id,
-    product_name: product.name,
+    product_name: product.name || first.product.name,
     barcode,
-    category: product.category,
+    category: product.category || first.product.category,
     status: result.status,
     sources
   });
@@ -1128,6 +1503,59 @@ async function ensureReportsTable(db) {
     CREATE INDEX IF NOT EXISTS idx_reports_created ON product_reports(created_at)
   `).run();
 }
+
+
+async function submitProductRoute(request, env) {
+  const db = requireDatabase(env);
+  const body = await readJson(request);
+  const name = clean(body.product_name || body.name, 240);
+  const barcode = clean(body.barcode || body.code, 80);
+  if (!name && !barcode) {
+    return jsonResponse({
+      success: false,
+      error: 'Provide a product name and/or barcode.'
+    }, 400);
+  }
+
+  const product = await upsertProduct(
+    db,
+    {
+      name: name || `Unnamed (${barcode})`,
+      brand: clean(body.brand, 160),
+      manufacturer: clean(body.manufacturer, 200),
+      category: clean(body.category, 120) || 'Other',
+      description: clean(body.notes || body.description, 1800),
+      image_url: '',
+      country_of_origin: clean(body.country_of_origin, 120),
+      confidence: 'user_submitted'
+    },
+    barcode
+      ? [{ type: 'barcode', value: barcode, source: 'user_submitted' }]
+      : [],
+    {
+      key: 'user_submitted',
+      name: 'User submitted',
+      url: '',
+      type: 'user_submitted',
+      evidence: {
+        nafdac_number: clean(body.nafdac_number || body.registration_number, 80),
+        batch_number: clean(body.batch_number, 80),
+        note: 'User-submitted. Not independently verified.'
+      }
+    }
+  );
+
+  return jsonResponse({
+    success: true,
+    record_type: 'user_submitted',
+    product,
+    message: 'Product submitted to TrueMark for review. User-submitted records are not independently verified and must not be treated as authenticity proof.',
+    classification: 'unverified',
+    classification_label: 'Unverified',
+    checked_at: isoNow()
+  });
+}
+
 
 async function createReportRoute(request, env) {
   const db = requireDatabase(env);
@@ -1852,6 +2280,10 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
 
   if (path === '/alerts' && method === 'GET') {
     return recallsRoute(url, env);
+  }
+
+  if (path === '/products/submit' && method === 'POST') {
+    return submitProductRoute(request, env);
   }
 
   if (path === '/reports' && method === 'POST') {
