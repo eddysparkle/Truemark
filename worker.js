@@ -1,13 +1,13 @@
 /**
  * TrueMark API — Cloudflare Workers + D1 + Workers AI
- * Version 7.0.0 — TrueMark 2.0 Phase 2.1 — multi-source barcode intelligence
+ * Version 7.0.0 — TrueMark 2.0 Phase 2.1 — B2B manufacturer portal + subscriptions
  *
  * Database-first product identification and safety-information service.
  * IMPORTANT: catalogue matches are not proof of physical authenticity.
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '7.2.0';
+const VERSION = '7.3.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -2114,6 +2114,870 @@ async function meRoute(request, env) {
 /* API request routing                                                        */
 /* -------------------------------------------------------------------------- */
 
+
+/* ========================================================================== */
+/* TrueMark B2B — businesses, plans, Paystack billing, admin                  */
+/* Paid status never alters consumer verification honesty.                    */
+/* ========================================================================== */
+
+const PLAN_DEFAULTS = {
+  starter: { max_products: 5, max_auth_codes_month: 0 },
+  professional: { max_products: 50, max_auth_codes_month: 500 },
+  business: { max_products: 200, max_auth_codes_month: 5000 },
+  enterprise: { max_products: 999999, max_auth_codes_month: 999999 }
+};
+
+async function ensureBusinessTables(db) {
+  // Lightweight ensure for critical tables if schema SQL not yet applied
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS subscription_plans (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      price_monthly_kobo INTEGER NOT NULL DEFAULT 0,
+      price_annual_kobo INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'NGN',
+      max_products INTEGER NOT NULL DEFAULT 5,
+      max_auth_codes_month INTEGER NOT NULL DEFAULT 0,
+      features_json TEXT NOT NULL DEFAULT '[]',
+      is_public INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS businesses (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      legal_name TEXT NOT NULL,
+      trading_name TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      country TEXT NOT NULL DEFAULT 'NG',
+      registration_number TEXT NOT NULL DEFAULT '',
+      website TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      rejection_reason TEXT NOT NULL DEFAULT '',
+      plan_code TEXT NOT NULL DEFAULT 'starter',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      approved_at TEXT,
+      approved_by TEXT
+    )
+  `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS business_products (
+      id TEXT PRIMARY KEY,
+      business_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      brand TEXT NOT NULL DEFAULT '',
+      barcode TEXT NOT NULL DEFAULT '',
+      gtin TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      image_url TEXT NOT NULL DEFAULT '',
+      nafdac_number TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      record_type TEXT NOT NULL DEFAULT 'manufacturer_registered',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id TEXT PRIMARY KEY,
+      business_id TEXT NOT NULL,
+      plan_code TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'trialing',
+      billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+      current_period_start TEXT,
+      current_period_end TEXT,
+      cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+      provider TEXT NOT NULL DEFAULT 'paystack',
+      provider_subscription_code TEXT NOT NULL DEFAULT '',
+      provider_customer_code TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      business_id TEXT NOT NULL,
+      subscription_id TEXT,
+      provider TEXT NOT NULL DEFAULT 'paystack',
+      provider_reference TEXT NOT NULL UNIQUE,
+      amount_kobo INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'NGN',
+      status TEXT NOT NULL DEFAULT 'pending',
+      plan_code TEXT NOT NULL DEFAULT '',
+      billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+      raw_json TEXT NOT NULL DEFAULT '',
+      paid_at TEXT,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS business_auth_codes (
+      id TEXT PRIMARY KEY,
+      business_id TEXT NOT NULL,
+      product_id TEXT,
+      code_hash TEXT NOT NULL,
+      code_prefix TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      scan_count INTEGER NOT NULL DEFAULT 0,
+      first_scan_at TEXT,
+      last_scan_at TEXT,
+      last_scan_country TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      UNIQUE(business_id, code_hash)
+    )
+  `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS admin_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+
+  const planCount = await db.prepare('SELECT COUNT(*) AS c FROM subscription_plans').first();
+  if (!planCount || Number(planCount.c) === 0) {
+    const now = isoNow();
+    const plans = [
+      ['plan_starter', 'starter', 'Starter', 'Free basic registration', 0, 0, 5, 0, 1],
+      ['plan_professional', 'professional', 'Professional', 'Analytics and reports', 2500000, 27000000, 50, 500, 2],
+      ['plan_business', 'business', 'Business', 'Geo + auth codes', 7500000, 81000000, 200, 5000, 3],
+      ['plan_enterprise', 'enterprise', 'Enterprise', 'Custom', 0, 0, 999999, 999999, 4]
+    ];
+    for (const p of plans) {
+      await db.prepare(`
+        INSERT OR IGNORE INTO subscription_plans (
+          id, code, name, description, price_monthly_kobo, price_annual_kobo, currency,
+          max_products, max_auth_codes_month, features_json, is_public, sort_order, active, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'NGN', ?, ?, '[]', 1, ?, 1, ?)
+      `).bind(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], now).run();
+    }
+  }
+}
+
+async function requireUser(request, env) {
+  const user = await getUserFromAuthHeader(request, env);
+  if (!user) {
+    throw new Error('AUTH_REQUIRED');
+  }
+  return user;
+}
+
+async function isPlatformAdmin(userId, env) {
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const row = await db.prepare(
+    "SELECT value FROM admin_settings WHERE key = 'admin_user_ids' LIMIT 1"
+  ).first();
+  if (!row) return false;
+  try {
+    const ids = JSON.parse(row.value || '[]');
+    return Array.isArray(ids) && ids.includes(userId);
+  } catch {
+    return false;
+  }
+}
+
+function adminIdsFromEnv(env) {
+  const raw = clean(env.ADMIN_USER_IDS || '', 500);
+  if (!raw) return [];
+  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+async function requireAdmin(request, env) {
+  const user = await requireUser(request, env);
+  const fromEnv = adminIdsFromEnv(env);
+  if (fromEnv.includes(user.id)) return user;
+  if (await isPlatformAdmin(user.id, env)) return user;
+  throw new Error('ADMIN_REQUIRED');
+}
+
+async function getBusinessForUser(db, userId) {
+  return db.prepare(
+    'SELECT * FROM businesses WHERE owner_user_id = ? ORDER BY created_at DESC LIMIT 1'
+  ).bind(userId).first();
+}
+
+async function getPlan(db, code) {
+  return db.prepare(
+    'SELECT * FROM subscription_plans WHERE code = ? AND active = 1 LIMIT 1'
+  ).bind(code).first();
+}
+
+async function getActiveSubscription(db, businessId) {
+  return db.prepare(
+    `SELECT * FROM subscriptions
+     WHERE business_id = ?
+       AND status IN ('active', 'trialing')
+     ORDER BY created_at DESC LIMIT 1`
+  ).bind(businessId).first();
+}
+
+function subscriptionIsLive(sub) {
+  if (!sub) return false;
+  if (sub.status === 'active' || sub.status === 'trialing') {
+    if (sub.current_period_end) {
+      return new Date(sub.current_period_end).getTime() >= Date.now();
+    }
+    return true;
+  }
+  return false;
+}
+
+async function listPlansRoute(env) {
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const { results } = await db.prepare(
+    'SELECT * FROM subscription_plans WHERE active = 1 AND is_public = 1 ORDER BY sort_order ASC'
+  ).all();
+  return jsonResponse({
+    success: true,
+    plans: results || [],
+    disclaimer:
+      'Paid plans unlock manufacturer tools only. They never buy favourable authenticity results or suppress safety reports.'
+  });
+}
+
+async function registerBusinessRoute(request, env) {
+  const user = await requireUser(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const body = await readJson(request);
+  const legal_name = clean(body.legal_name || body.company_name, 200);
+  const email = clean(body.email || user.email, 160).toLowerCase();
+  if (!legal_name) {
+    return jsonResponse({ success: false, error: 'Company legal name is required.' }, 400);
+  }
+
+  const existing = await getBusinessForUser(db, user.id);
+  if (existing && existing.status !== 'rejected') {
+    return jsonResponse({
+      success: true,
+      business: existing,
+      message: 'Business already registered.'
+    });
+  }
+
+  const id = crypto.randomUUID();
+  const now = isoNow();
+  await db.prepare(`
+    INSERT INTO businesses (
+      id, owner_user_id, legal_name, trading_name, email, phone, country,
+      registration_number, website, status, plan_code, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'starter', ?, ?)
+  `).bind(
+    id,
+    user.id,
+    legal_name,
+    clean(body.trading_name, 200),
+    email,
+    clean(body.phone, 40),
+    clean(body.country || 'NG', 8) || 'NG',
+    clean(body.registration_number, 80),
+    clean(body.website, 300),
+    now,
+    now
+  ).run();
+
+  const business = await db.prepare('SELECT * FROM businesses WHERE id = ?').bind(id).first();
+  return jsonResponse({
+    success: true,
+    business,
+    message: 'Application received. An administrator must approve before paid features activate.'
+  });
+}
+
+async function myBusinessRoute(request, env) {
+  const user = await requireUser(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const business = await getBusinessForUser(db, user.id);
+  if (!business) {
+    return jsonResponse({ success: true, business: null });
+  }
+  const sub = await getActiveSubscription(db, business.id);
+  const plan = await getPlan(db, business.plan_code || 'starter');
+  const { results: products } = await db.prepare(
+    'SELECT * FROM business_products WHERE business_id = ? ORDER BY updated_at DESC LIMIT 100'
+  ).bind(business.id).all();
+
+  return jsonResponse({
+    success: true,
+    business,
+    subscription: sub || null,
+    subscription_live: subscriptionIsLive(sub),
+    plan,
+    products: products || [],
+    trust_rules: {
+      paid_does_not_mean_authenticated: true,
+      paid_cannot_suppress_reports: true,
+      manufacturer_registered_is_not_regulatory_verification: true
+    }
+  });
+}
+
+async function addBusinessProductRoute(request, env) {
+  const user = await requireUser(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const business = await getBusinessForUser(db, user.id);
+  if (!business) {
+    return jsonResponse({ success: false, error: 'Register a business first.' }, 400);
+  }
+  if (business.status === 'suspended') {
+    return jsonResponse({ success: false, error: 'Business is suspended.' }, 403);
+  }
+  if (business.status === 'pending') {
+    return jsonResponse({
+      success: false,
+      error: 'Business is pending admin approval. You can still prepare data after approval.'
+    }, 403);
+  }
+
+  const plan = await getPlan(db, business.plan_code || 'starter');
+  const maxProducts = plan ? Number(plan.max_products) : 5;
+  const countRow = await db.prepare(
+    "SELECT COUNT(*) AS c FROM business_products WHERE business_id = ? AND status = 'active'"
+  ).bind(business.id).first();
+  if (Number(countRow?.c || 0) >= maxProducts) {
+    return jsonResponse({
+      success: false,
+      error: `Plan limit reached (${maxProducts} products). Upgrade to add more.`
+    }, 403);
+  }
+
+  const body = await readJson(request);
+  const name = clean(body.name || body.product_name, 240);
+  if (!name) {
+    return jsonResponse({ success: false, error: 'Product name is required.' }, 400);
+  }
+
+  const id = crypto.randomUUID();
+  const now = isoNow();
+  await db.prepare(`
+    INSERT INTO business_products (
+      id, business_id, name, brand, barcode, gtin, category, description,
+      image_url, nafdac_number, status, record_type, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'manufacturer_registered', ?, ?)
+  `).bind(
+    id,
+    business.id,
+    name,
+    clean(body.brand, 160),
+    clean(body.barcode, 80),
+    clean(body.gtin, 80),
+    clean(body.category, 120),
+    clean(body.description, 2000),
+    clean(body.image_url, 1000),
+    clean(body.nafdac_number, 80),
+    now,
+    now
+  ).run();
+
+  const product = await db.prepare('SELECT * FROM business_products WHERE id = ?').bind(id).first();
+  return jsonResponse({
+    success: true,
+    product,
+    record_type: 'manufacturer_registered',
+    disclaimer:
+      'Manufacturer-registered product data is provided by the business. It is not NAFDAC verification and does not authenticate a physical unit.'
+  });
+}
+
+async function initiatePaystackPaymentRoute(request, env) {
+  const user = await requireUser(request, env);
+  const secret = clean(env.PAYSTACK_SECRET_KEY || '', 200);
+  if (!secret) {
+    return jsonResponse({
+      success: false,
+      error: 'Paystack is not configured. Set PAYSTACK_SECRET_KEY on the Worker.'
+    }, 503);
+  }
+
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const business = await getBusinessForUser(db, user.id);
+  if (!business || business.status !== 'approved') {
+    return jsonResponse({
+      success: false,
+      error: 'Business must be approved before paid checkout.'
+    }, 403);
+  }
+
+  const body = await readJson(request);
+  const plan_code = clean(body.plan_code, 40);
+  const billing_cycle = clean(body.billing_cycle || 'monthly', 20) === 'annual' ? 'annual' : 'monthly';
+  const plan = await getPlan(db, plan_code);
+  if (!plan || plan_code === 'starter' || plan_code === 'enterprise') {
+    return jsonResponse({
+      success: false,
+      error: 'Select Professional or Business plan, or contact TrueMark for Enterprise.'
+    }, 400);
+  }
+
+  const amount =
+    billing_cycle === 'annual'
+      ? Number(plan.price_annual_kobo)
+      : Number(plan.price_monthly_kobo);
+  if (!amount || amount < 10000) {
+    return jsonResponse({ success: false, error: 'Plan amount is not configured.' }, 400);
+  }
+
+  const reference = `tm_${business.id.slice(0, 8)}_${Date.now()}`;
+  const paymentId = crypto.randomUUID();
+  const now = isoNow();
+
+  await db.prepare(`
+    INSERT INTO payments (
+      id, business_id, subscription_id, provider, provider_reference,
+      amount_kobo, currency, status, plan_code, billing_cycle, raw_json, created_at
+    ) VALUES (?, ?, NULL, 'paystack', ?, ?, ?, 'pending', ?, ?, '', ?)
+  `).bind(
+    paymentId,
+    business.id,
+    reference,
+    amount,
+    plan.currency || 'NGN',
+    plan_code,
+    billing_cycle,
+    now
+  ).run();
+
+  const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      email: business.email || user.email,
+      amount,
+      currency: plan.currency || 'NGN',
+      reference,
+      callback_url: clean(body.callback_url || 'https://eddysparkle.github.io/Truemark/business.html', 500),
+      metadata: {
+        business_id: business.id,
+        plan_code,
+        billing_cycle,
+        payment_id: paymentId
+      }
+    })
+  });
+
+  const initData = await initRes.json().catch(() => ({}));
+  if (!initRes.ok || !initData.status) {
+    return jsonResponse({
+      success: false,
+      error: initData.message || 'Paystack initialize failed.'
+    }, 502);
+  }
+
+  return jsonResponse({
+    success: true,
+    authorization_url: initData.data.authorization_url,
+    access_code: initData.data.access_code,
+    reference,
+    amount_kobo: amount,
+    currency: plan.currency || 'NGN',
+    note: 'Subscription activates only after Paystack webhook or server-side verify succeeds.'
+  });
+}
+
+async function verifyPaystackTransaction(reference, env) {
+  const secret = clean(env.PAYSTACK_SECRET_KEY || '', 200);
+  if (!secret) return null;
+  const res = await fetch(
+    `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+    { headers: { Authorization: `Bearer ${secret}` } }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.status) return null;
+  return data.data;
+}
+
+async function activateSubscriptionFromPayment(db, payment, plan_code, billing_cycle) {
+  const now = isoNow();
+  const periodEnd = new Date(
+    Date.now() + (billing_cycle === 'annual' ? 365 : 30) * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const subId = crypto.randomUUID();
+  await db.prepare(`
+    INSERT INTO subscriptions (
+      id, business_id, plan_code, status, billing_cycle,
+      current_period_start, current_period_end, cancel_at_period_end,
+      provider, created_at, updated_at
+    ) VALUES (?, ?, ?, 'active', ?, ?, ?, 0, 'paystack', ?, ?)
+  `).bind(
+    subId,
+    payment.business_id,
+    plan_code,
+    billing_cycle,
+    now,
+    periodEnd,
+    now,
+    now
+  ).run();
+
+  await db.prepare(
+    'UPDATE businesses SET plan_code = ?, updated_at = ? WHERE id = ?'
+  ).bind(plan_code, now, payment.business_id).run();
+
+  await db.prepare(
+    `UPDATE payments SET status = 'success', paid_at = ?, subscription_id = ? WHERE id = ?`
+  ).bind(now, subId, payment.id).run();
+
+  return subId;
+}
+
+async function paystackWebhookRoute(request, env) {
+  const secret = clean(env.PAYSTACK_SECRET_KEY || '', 200);
+  if (!secret) {
+    return jsonResponse({ success: false, error: 'Not configured' }, 503);
+  }
+
+  const raw = await request.text();
+  const signature = request.headers.get('x-paystack-signature') || '';
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-512' },
+    false,
+    ['sign']
+  );
+  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(raw));
+  const hash = [...new Uint8Array(sigBuf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  if (hash !== signature) {
+    return jsonResponse({ success: false, error: 'Invalid signature' }, 401);
+  }
+
+  let event;
+  try {
+    event = JSON.parse(raw);
+  } catch {
+    return jsonResponse({ success: false, error: 'Invalid JSON' }, 400);
+  }
+
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+
+  if (event.event === 'charge.success') {
+    const data = event.data || {};
+    const reference = clean(data.reference, 120);
+    if (!reference) {
+      return jsonResponse({ success: true, ignored: true });
+    }
+
+    const payment = await db.prepare(
+      'SELECT * FROM payments WHERE provider_reference = ? LIMIT 1'
+    ).bind(reference).first();
+
+    if (!payment) {
+      return jsonResponse({ success: true, ignored: 'unknown_reference' });
+    }
+    if (payment.status === 'success') {
+      return jsonResponse({ success: true, duplicate: true });
+    }
+
+    // Confirm amount
+    if (Number(data.amount) !== Number(payment.amount_kobo)) {
+      return jsonResponse({ success: false, error: 'Amount mismatch' }, 400);
+    }
+
+    await db.prepare(
+      'UPDATE payments SET raw_json = ? WHERE id = ?'
+    ).bind(raw.slice(0, 8000), payment.id).run();
+
+    await activateSubscriptionFromPayment(
+      db,
+      payment,
+      payment.plan_code,
+      payment.billing_cycle || 'monthly'
+    );
+  }
+
+  return jsonResponse({ success: true });
+}
+
+async function verifyPaymentRoute(request, env) {
+  // Optional client-triggered verify; still uses Paystack server API — never trust client alone
+  const user = await requireUser(request, env);
+  const body = await readJson(request);
+  const reference = clean(body.reference, 120);
+  if (!reference) {
+    return jsonResponse({ success: false, error: 'reference required' }, 400);
+  }
+
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const payment = await db.prepare(
+    'SELECT * FROM payments WHERE provider_reference = ? LIMIT 1'
+  ).bind(reference).first();
+  if (!payment) {
+    return jsonResponse({ success: false, error: 'Payment not found' }, 404);
+  }
+
+  const business = await getBusinessForUser(db, user.id);
+  if (!business || business.id !== payment.business_id) {
+    return jsonResponse({ success: false, error: 'Forbidden' }, 403);
+  }
+
+  if (payment.status === 'success') {
+    return jsonResponse({ success: true, status: 'success', already_active: true });
+  }
+
+  const verified = await verifyPaystackTransaction(reference, env);
+  if (!verified || verified.status !== 'success') {
+    return jsonResponse({ success: false, status: 'pending', error: 'Not paid yet' }, 402);
+  }
+  if (Number(verified.amount) !== Number(payment.amount_kobo)) {
+    return jsonResponse({ success: false, error: 'Amount mismatch' }, 400);
+  }
+
+  await activateSubscriptionFromPayment(
+    db,
+    payment,
+    payment.plan_code,
+    payment.billing_cycle || 'monthly'
+  );
+
+  return jsonResponse({ success: true, status: 'success' });
+}
+
+async function adminListBusinessesRoute(request, env) {
+  await requireAdmin(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const { results } = await db.prepare(
+    'SELECT * FROM businesses ORDER BY created_at DESC LIMIT 200'
+  ).all();
+  return jsonResponse({ success: true, businesses: results || [] });
+}
+
+async function adminSetBusinessStatusRoute(request, env) {
+  const admin = await requireAdmin(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const body = await readJson(request);
+  const id = clean(body.business_id || body.id, 80);
+  const status = clean(body.status, 20);
+  if (!['approved', 'rejected', 'suspended', 'pending'].includes(status)) {
+    return jsonResponse({ success: false, error: 'Invalid status' }, 400);
+  }
+  const now = isoNow();
+  await db.prepare(`
+    UPDATE businesses
+    SET status = ?, rejection_reason = ?, updated_at = ?,
+        approved_at = CASE WHEN ? = 'approved' THEN ? ELSE approved_at END,
+        approved_by = CASE WHEN ? = 'approved' THEN ? ELSE approved_by END
+    WHERE id = ?
+  `).bind(
+    status,
+    clean(body.reason, 500),
+    now,
+    status,
+    now,
+    status,
+    admin.id,
+    id
+  ).run();
+  return jsonResponse({ success: true });
+}
+
+async function adminUpdatePlanRoute(request, env) {
+  await requireAdmin(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const body = await readJson(request);
+  const code = clean(body.code, 40);
+  if (!code) {
+    return jsonResponse({ success: false, error: 'code required' }, 400);
+  }
+  const now = isoNow();
+  await db.prepare(`
+    UPDATE subscription_plans SET
+      name = COALESCE(?, name),
+      description = COALESCE(?, description),
+      price_monthly_kobo = COALESCE(?, price_monthly_kobo),
+      price_annual_kobo = COALESCE(?, price_annual_kobo),
+      max_products = COALESCE(?, max_products),
+      max_auth_codes_month = COALESCE(?, max_auth_codes_month),
+      active = COALESCE(?, active),
+      updated_at = ?
+    WHERE code = ?
+  `).bind(
+    body.name != null ? clean(body.name, 80) : null,
+    body.description != null ? clean(body.description, 500) : null,
+    body.price_monthly_kobo != null ? Number(body.price_monthly_kobo) : null,
+    body.price_annual_kobo != null ? Number(body.price_annual_kobo) : null,
+    body.max_products != null ? Number(body.max_products) : null,
+    body.max_auth_codes_month != null ? Number(body.max_auth_codes_month) : null,
+    body.active != null ? (body.active ? 1 : 0) : null,
+    now,
+    code
+  ).run();
+  return jsonResponse({ success: true });
+}
+
+async function adminStatsRoute(request, env) {
+  await requireAdmin(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const businesses = await db.prepare('SELECT COUNT(*) AS c FROM businesses').first();
+  const approved = await db.prepare(
+    "SELECT COUNT(*) AS c FROM businesses WHERE status = 'approved'"
+  ).first();
+  const payments = await db.prepare(
+    "SELECT COUNT(*) AS c, COALESCE(SUM(amount_kobo),0) AS revenue FROM payments WHERE status = 'success'"
+  ).first();
+  const reports = await db.prepare('SELECT COUNT(*) AS c FROM product_reports').first().catch(() => ({ c: 0 }));
+  return jsonResponse({
+    success: true,
+    stats: {
+      businesses: Number(businesses?.c || 0),
+      approved: Number(approved?.c || 0),
+      successful_payments: Number(payments?.c || 0),
+      revenue_kobo: Number(payments?.revenue || 0),
+      consumer_reports: Number(reports?.c || 0)
+    }
+  });
+}
+
+async function issueAuthCodesRoute(request, env) {
+  const user = await requireUser(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const business = await getBusinessForUser(db, user.id);
+  if (!business || business.status !== 'approved') {
+    return jsonResponse({ success: false, error: 'Approved business required.' }, 403);
+  }
+  const sub = await getActiveSubscription(db, business.id);
+  const plan = await getPlan(db, business.plan_code || 'starter');
+  const allowed =
+    subscriptionIsLive(sub) &&
+    plan &&
+    Number(plan.max_auth_codes_month) > 0 &&
+    ['business', 'enterprise', 'professional'].includes(business.plan_code);
+  // Professional gets limited codes; starter none
+  if (!allowed && !(plan && Number(plan.max_auth_codes_month) > 0 && subscriptionIsLive(sub))) {
+    return jsonResponse({
+      success: false,
+      error: 'Auth codes require an active plan with auth capacity (Business or higher recommended).'
+    }, 403);
+  }
+
+  const body = await readJson(request);
+  const count = Math.min(Math.max(Number(body.count) || 1, 1), 100);
+  const product_id = clean(body.product_id, 80);
+  const created = [];
+  const now = isoNow();
+
+  for (let i = 0; i < count; i += 1) {
+    const plain = `TM-${crypto.randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`;
+    const prefix = plain.slice(0, 8);
+    const hashBuffer = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(plain)
+    );
+    const code_hash = [...new Uint8Array(hashBuffer)]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const id = crypto.randomUUID();
+    await db.prepare(`
+      INSERT INTO business_auth_codes (
+        id, business_id, product_id, code_hash, code_prefix, status, scan_count, created_at
+      ) VALUES (?, ?, ?, ?, ?, 'active', 0, ?)
+    `).bind(id, business.id, product_id || null, code_hash, prefix, now).run();
+    created.push({ id, code: plain, prefix });
+  }
+
+  return jsonResponse({
+    success: true,
+    codes: created,
+    warning:
+      'Store codes securely. TrueMark only stores hashes. Showing codes once. Unit authentication is only as strong as your packaging and distribution controls.'
+  });
+}
+
+async function verifyAuthCodeRoute(request, env) {
+  // Public consumer check for manufacturer-issued codes
+  const body = await readJson(request);
+  const code = clean(body.code || body.auth_code, 80);
+  if (!code) {
+    return jsonResponse({ success: false, error: 'code required' }, 400);
+  }
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const hashBuffer = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(code)
+  );
+  const code_hash = [...new Uint8Array(hashBuffer)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const row = await db.prepare(
+    'SELECT * FROM business_auth_codes WHERE code_hash = ? LIMIT 1'
+  ).bind(code_hash).first();
+
+  if (!row) {
+    return makeResult(
+      'unverified',
+      'Authentication code not recognised',
+      'No manufacturer-backed code matched. This does not by itself prove the product is counterfeit.',
+      [],
+      { authenticated: false }
+    );
+  }
+
+  const now = isoNow();
+  const scan_count = Number(row.scan_count || 0) + 1;
+  let status = row.status;
+  let classification = 'authenticated';
+  let message = 'Manufacturer-backed authentication code matched.';
+
+  if (row.status === 'revoked') {
+    classification = 'high_risk';
+    message = 'This authentication code was revoked by the manufacturer.';
+  } else if (scan_count > 5) {
+    status = 'suspicious';
+    classification = 'caution';
+    message =
+      'Code matched but has been scanned many times. Possible sharing, leakage, or misuse — treat with caution.';
+  }
+
+  await db.prepare(`
+    UPDATE business_auth_codes
+    SET scan_count = ?, last_scan_at = ?, first_scan_at = COALESCE(first_scan_at, ?), status = ?
+    WHERE id = ?
+  `).bind(scan_count, now, now, status, row.id).run();
+
+  return makeResult(
+    classification === 'authenticated' ? 'authenticated' : classification,
+    classification === 'authenticated' ? 'Unit code matched' : 'Code requires caution',
+    message,
+    [sourceInfo('Manufacturer auth code', '', 'manufacturer_backed')],
+    {
+      authenticated: classification === 'authenticated',
+      scan_count,
+      business_id: row.business_id,
+      product_id: row.product_id,
+      disclaimer:
+        'Authentication reflects manufacturer-issued code status only. It is not a NAFDAC registration check.'
+    }
+  );
+}
+
+
 async function handleRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, '') || '/';
@@ -2293,6 +3157,93 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
   if (path === '/regulators' && method === 'GET') {
     return regulatorsRoute();
   }
+
+  
+  // ---- B2B / billing / admin ----
+  if (path === '/business/plans' && method === 'GET') {
+    return listPlansRoute(env);
+  }
+  if (path === '/business/register' && method === 'POST') {
+    try { return await registerBusinessRoute(request, env); }
+    catch (e) {
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/business/me' && method === 'GET') {
+    try { return await myBusinessRoute(request, env); }
+    catch (e) {
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/business/products' && method === 'POST') {
+    try { return await addBusinessProductRoute(request, env); }
+    catch (e) {
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/business/checkout' && method === 'POST') {
+    try { return await initiatePaystackPaymentRoute(request, env); }
+    catch (e) {
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/business/verify-payment' && method === 'POST') {
+    try { return await verifyPaymentRoute(request, env); }
+    catch (e) {
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/business/auth-codes' && method === 'POST') {
+    try { return await issueAuthCodesRoute(request, env); }
+    catch (e) {
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/verify/auth-code' && method === 'POST') {
+    return verifyAuthCodeRoute(request, env);
+  }
+  if (path === '/webhooks/paystack' && method === 'POST') {
+    return paystackWebhookRoute(request, env);
+  }
+  if (path === '/admin/businesses' && method === 'GET') {
+    try { return await adminListBusinessesRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/admin/businesses/status' && method === 'POST') {
+    try { return await adminSetBusinessStatusRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/admin/plans' && method === 'POST') {
+    try { return await adminUpdatePlanRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/admin/stats' && method === 'GET') {
+    try { return await adminStatsRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+
 
   return jsonResponse({
     success: false,
