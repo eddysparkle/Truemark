@@ -176,8 +176,19 @@
     <h1>TrueMark Admin</h1>
     <p class="muted">Approve manufacturers, adjust plan prices, and view revenue. Only accounts listed in <code>ADMIN_USER_IDS</code> can use this page.</p>
 
-    <div class="card">
+    <div class="card" id="sessionCard" hidden>
+      <h2>Admin session</h2>
+      <p class="muted" id="whoActive">—</p>
+      <p class="muted" id="adminGateMsg" style="margin-top:8px;"></p>
+      <div class="btn-row">
+        <button type="button" class="chip-btn" id="btnLogout">Sign out</button>
+        <button type="button" class="chip-btn" id="btnStats2">Refresh</button>
+      </div>
+    </div>
+
+    <div class="card" id="loginCard">
       <h2>Sign in</h2>
+      <p class="muted">Use the account whose user id is in Cloudflare <code>ADMIN_USER_IDS</code>.</p>
       <label>Email <input id="email" type="email" autocomplete="username" /></label>
       <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
       <div class="btn-row">
@@ -222,22 +233,13 @@
   <script>
   const API = "https://truemark-ai.edialeeghonghon.workers.dev";
   const TOKEN_KEY = "truemark_auth_token";
+  const USER_KEY = "truemark_auth_user";
   const $ = (id) => document.getElementById(id);
   const token = () => localStorage.getItem(TOKEN_KEY) || "";
   const headers = () => ({
     "Content-Type": "application/json",
     ...(token() ? { Authorization: "Bearer " + token() } : {})
   });
-
-  async function api(path, options = {}) {
-    const res = await fetch(API + path, {
-      ...options,
-      headers: { ...headers(), ...(options.headers || {}) }
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || data.message || String(res.status));
-    return data;
-  }
 
   function esc(s) {
     return String(s || "")
@@ -247,8 +249,48 @@
       .replace(/"/g, "&quot;");
   }
 
+  function showLoggedIn(user) {
+    const loginCard = $("loginCard");
+    const sessionCard = $("sessionCard");
+    if (loginCard) loginCard.hidden = true;
+    if (sessionCard) sessionCard.hidden = false;
+    const label =
+      "Signed in as " + (user?.email || "admin") +
+      (user?.id ? " · id: " + user.id : "");
+    if ($("whoActive")) $("whoActive").textContent = label;
+    if ($("who")) $("who").textContent = label;
+  }
+
+  function showLoggedOut() {
+    const loginCard = $("loginCard");
+    const sessionCard = $("sessionCard");
+    if (loginCard) loginCard.hidden = false;
+    if (sessionCard) sessionCard.hidden = true;
+    if ($("who")) $("who").textContent = "Not signed in";
+    if ($("whoActive")) $("whoActive").textContent = "—";
+    if ($("adminGateMsg")) $("adminGateMsg").textContent = "";
+    if ($("stats")) $("stats").textContent = "Sign in to load stats.";
+    if ($("bizTable")) $("bizTable").textContent = "Load after sign-in";
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, {
+      ...options,
+      headers: { ...headers(), ...(options.headers || {}) }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || data.message || String(res.status));
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
+
   $("btnLogin").onclick = async () => {
     try {
+      $("who").textContent = "Signing in…";
       const data = await api("/auth/login", {
         method: "POST",
         body: JSON.stringify({
@@ -257,13 +299,25 @@
         })
       });
       if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
-      $("who").textContent =
-        "Signed in as " + (data.user?.email || "") + " · id: " + (data.user?.id || "");
-      await loadAll();
+      if (data.user) localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      showLoggedIn(data.user);
+      await loadAll(data.user);
     } catch (e) {
-      $("who").textContent = e.message;
+      showLoggedOut();
+      $("who").textContent = e.message || "Sign in failed";
     }
   };
+
+  function bindLogout() {
+    const btn = $("btnLogout");
+    if (!btn) return;
+    btn.onclick = () => {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      showLoggedOut();
+    };
+  }
+  bindLogout();
 
   async function loadStats() {
     const data = await api("/admin/stats");
@@ -328,17 +382,39 @@
     });
   }
 
-  async function loadAll() {
+  async function loadAll(user) {
     try {
       await loadStats();
       await loadBusinesses();
+      if ($("adminGateMsg")) {
+        $("adminGateMsg").textContent =
+          "Admin access granted. You can approve manufacturers below.";
+        $("adminGateMsg").style.color = "#0b6e4f";
+      }
     } catch (e) {
-      $("stats").textContent = e.message;
-      $("bizTable").textContent = e.message;
+      const msg = e.message || "Failed";
+      $("stats").textContent = msg;
+      $("bizTable").textContent = msg;
+      if ($("adminGateMsg")) {
+        if (msg.toLowerCase().includes("admin") || e.status === 403) {
+          const id = user?.id || (JSON.parse(localStorage.getItem(USER_KEY) || "{}").id) || "(unknown)";
+          $("adminGateMsg").textContent =
+            "Signed in, but this account is not an admin. " +
+            "Your user id is: " + id + ". " +
+            "It must match Cloudflare secret ADMIN_USER_IDS exactly (Production), then redeploy the Worker.";
+          $("adminGateMsg").style.color = "#a11818";
+        } else {
+          $("adminGateMsg").textContent = msg;
+          $("adminGateMsg").style.color = "#a11818";
+        }
+      }
     }
   }
 
   $("btnStats").onclick = () => loadAll();
+  const btnStats2 = $("btnStats2");
+  if (btnStats2) btnStats2.onclick = () => loadAll();
+
   $("btnPlan").onclick = async () => {
     try {
       const body = { code: $("planCode").value };
@@ -353,9 +429,14 @@
   };
 
   if (token()) {
-    $("who").textContent = "Session found — loading…";
-    loadAll();
+    let user = null;
+    try { user = JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch (_) {}
+    showLoggedIn(user || { email: "session restored" });
+    loadAll(user);
+  } else {
+    showLoggedOut();
   }
-  </script>
+</script>
+
 </body>
 </html>
