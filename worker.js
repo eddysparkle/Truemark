@@ -7,7 +7,7 @@
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '7.3.0';
+const VERSION = '8.0.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -972,6 +972,14 @@ async function verifyBarcode(barcodeValue, env) {
     const term = first.product.name || first.product.brand || '';
     if (term && term.length >= 4) {
       fda_recalls = (await lookupFdaRecalls(env, term.split(/\s+/)[0])).slice(0, 3);
+    }
+  } catch (_) {}
+
+  let enrichment = {};
+  try {
+    enrichment = await enrichWithOptionalSources(first.product, env, barcode);
+    if (enrichment.usda && !matches.some(m => m.source && m.source.key === 'usda_fdc')) {
+      sources.push(sourceInfo('USDA FoodData Central', enrichment.usda.url, 'public_catalogue'));
     }
   } catch (_) {}
 
@@ -2978,6 +2986,293 @@ async function verifyAuthCodeRoute(request, env) {
 }
 
 
+
+/* ========================================================================== */
+/* TrueMark Global Product Intelligence Engine (v8) — additive adapters       */
+/* Does not replace existing verifyBarcode / auth / business / paystack.      */
+/* ========================================================================== */
+
+async function lookupUsdaFdc(query, env, barcode) {
+  const key = clean(env.USDA_FDC_API_KEY || '', 120);
+  if (!key) return null;
+  const q = clean(barcode || query, 80);
+  if (!q || q.length < 3) return null;
+  try {
+    const url =
+      'https://api.nal.usda.gov/fdc/v1/foods/search?api_key=' +
+      encodeURIComponent(key) +
+      '&query=' + encodeURIComponent(q) +
+      '&pageSize=5&dataType=Branded';
+    const data = await fetchJson(url, {}, 9000);
+    const foods = data.foods || [];
+    if (!foods.length) return null;
+    const f = foods[0];
+    return {
+      source: { key: 'usda_fdc', name: 'USDA FoodData Central', category: 'Food' },
+      product: {
+        name: f.description || '',
+        brand: f.brandOwner || f.brandName || '',
+        manufacturer: f.brandOwner || '',
+        category: (f.foodCategory || 'Food') + '',
+        description: f.ingredients || '',
+        image_url: '',
+        country_of_origin: f.marketCountry || '',
+        barcode: f.gtinUpc || barcode || '',
+        quantity: f.packageWeight || '',
+        fdc_id: f.fdcId
+      },
+      url: f.fdcId
+        ? 'https://fdc.nal.usda.gov/fdc-app.html#/food-details/' + f.fdcId
+        : 'https://fdc.nal.usda.gov/',
+      nutrients: (f.foodNutrients || []).slice(0, 12).map((n) => ({
+        name: n.nutrientName,
+        amount: n.value,
+        unit: n.unitName
+      }))
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function lookupPubChemCompound(name) {
+  const q = clean(name, 120);
+  if (!q || q.length < 2) return null;
+  try {
+    const url =
+      'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/' +
+      encodeURIComponent(q) +
+      '/property/Title,MolecularFormula,MolecularWeight,IUPACName,CanonicalSMILES/JSON';
+    const data = await fetchJson(url, {}, 9000);
+    const props = data?.PropertyTable?.Properties;
+    if (!props || !props.length) return null;
+    const p = props[0];
+    return {
+      source: 'PubChem',
+      query: q,
+      cid: p.CID,
+      title: p.Title,
+      formula: p.MolecularFormula,
+      weight: p.MolecularWeight,
+      iupac: p.IUPACName,
+      url: 'https://pubchem.ncbi.nlm.nih.gov/compound/' + p.CID,
+      disclaimer:
+        'PubChem identifies chemical substances. It is not a product authenticity or regulatory approval check.'
+    };
+  } catch {
+    return null;
+  }
+}
+
+function intelligenceMatrixPayload() {
+  return {
+    success: true,
+    engine: 'TrueMark Global Product Intelligence',
+    version: VERSION,
+    sources: [
+      { id: 'open_food_facts', status: 'live', access: 'public_api', categories: ['food'] },
+      { id: 'open_beauty_facts', status: 'live', access: 'public_api', categories: ['beauty'] },
+      { id: 'open_products_facts', status: 'live', access: 'public_api', categories: ['general'] },
+      { id: 'open_pet_food_facts', status: 'live', access: 'public_api', categories: ['pet'] },
+      { id: 'upcitemdb', status: 'live', access: 'public_api_optional_key', categories: ['general'] },
+      { id: 'gs1_digital_link', status: 'live_informational', access: 'resolver', categories: ['gtin'] },
+      { id: 'openfda', status: 'live', access: 'public_api', categories: ['drugs', 'recalls'] },
+      { id: 'usda_fdc', status: 'live_if_key', access: 'api_key', env: 'USDA_FDC_API_KEY', categories: ['food'] },
+      { id: 'pubchem', status: 'live', access: 'public_api', categories: ['ingredients'] },
+      { id: 'nafdac_portals', status: 'guidance_links', access: 'portal', categories: ['ng_regulated'] },
+      { id: 'son_portals', status: 'pending_partnership', access: 'portal', categories: ['ng_standards'] },
+      { id: 'ncc_device', status: 'pending', access: 'portal', categories: ['telecom'] },
+      { id: 'who_sf_alerts', status: 'link_intelligence', access: 'web', categories: ['medicines'] },
+      { id: 'eu_safety_gate', status: 'pending', access: 'web', categories: ['nonfood'] },
+      { id: 'paystack', status: 'live', access: 'secret', categories: ['billing'] }
+    ],
+    principles: [
+      'Catalogue match is not physical authenticity',
+      'Paid manufacturer plans cannot buy verification outcomes',
+      'Unknown product is not classified as counterfeit',
+      'One source failure must not block other sources'
+    ]
+  };
+}
+
+async function intelligenceIngredientRoute(request, env) {
+  const body = await readJson(request);
+  const name = clean(body.name || body.ingredient || body.query, 120);
+  if (!name) {
+    return jsonResponse({ success: false, error: 'Ingredient name required' }, 400);
+  }
+  const result = await lookupPubChemCompound(name);
+  if (!result) {
+    return jsonResponse({
+      success: true,
+      found: false,
+      message: 'No PubChem compound matched this name.',
+      query: name
+    });
+  }
+  return jsonResponse({ success: true, found: true, compound: result });
+}
+
+async function ensureCommunityTable(db) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS community_submissions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      barcode TEXT NOT NULL DEFAULT '',
+      product_name TEXT NOT NULL DEFAULT '',
+      brand TEXT NOT NULL DEFAULT '',
+      manufacturer TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      nafdac_number TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      image_meta TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      reviewer_note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      reviewed_at TEXT
+    )
+  `).run();
+  await db.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_community_status ON community_submissions(status)'
+  ).run();
+}
+
+async function communitySubmitRoute(request, env) {
+  const body = await readJson(request);
+  const db = requireDatabase(env);
+  await ensureCommunityTable(db);
+  let userId = null;
+  try {
+    const user = await getUserFromAuthHeader(request, env);
+    if (user) userId = user.id;
+  } catch (_) {}
+
+  const product_name = clean(body.product_name || body.name, 240);
+  const barcode = clean(body.barcode, 80);
+  if (!product_name && !barcode) {
+    return jsonResponse({
+      success: false,
+      error: 'Provide at least a product name or barcode.'
+    }, 400);
+  }
+
+  const id = crypto.randomUUID();
+  const now = isoNow();
+  await db.prepare(`
+    INSERT INTO community_submissions (
+      id, user_id, barcode, product_name, brand, manufacturer, category,
+      nafdac_number, notes, image_meta, status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+  `).bind(
+    id,
+    userId,
+    barcode,
+    product_name,
+    clean(body.brand, 160),
+    clean(body.manufacturer, 160),
+    clean(body.category, 120),
+    clean(body.nafdac_number, 80),
+    clean(body.notes, 1000),
+    clean(body.image_meta, 500),
+    now
+  ).run();
+
+  return jsonResponse({
+    success: true,
+    submission_id: id,
+    status: 'pending',
+    disclaimer:
+      'Community submissions enter a review queue. They are not verified, genuine, or regulator-approved until independently reviewed.'
+  });
+}
+
+async function adminCommunityListRoute(request, env) {
+  await requireAdmin(request, env);
+  const db = requireDatabase(env);
+  await ensureCommunityTable(db);
+  const { results } = await db.prepare(
+    `SELECT * FROM community_submissions ORDER BY created_at DESC LIMIT 100`
+  ).all();
+  return jsonResponse({ success: true, submissions: results || [] });
+}
+
+async function adminCommunityReviewRoute(request, env) {
+  const admin = await requireAdmin(request, env);
+  const body = await readJson(request);
+  const id = clean(body.id || body.submission_id, 80);
+  const status = clean(body.status, 20);
+  if (!['approved', 'rejected', 'pending'].includes(status)) {
+    return jsonResponse({ success: false, error: 'Invalid status' }, 400);
+  }
+  const db = requireDatabase(env);
+  await ensureCommunityTable(db);
+  const now = isoNow();
+  await db.prepare(`
+    UPDATE community_submissions
+    SET status = ?, reviewer_note = ?, reviewed_at = ?
+    WHERE id = ?
+  `).bind(status, clean(body.note, 500), now, id).run();
+
+  // If approved with enough data, upsert into products as user_submitted provenance
+  if (status === 'approved') {
+    const row = await db.prepare(
+      'SELECT * FROM community_submissions WHERE id = ?'
+    ).bind(id).first();
+    if (row && (row.product_name || row.barcode)) {
+      await upsertProduct(
+        db,
+        {
+          name: row.product_name || 'Community product',
+          brand: row.brand || '',
+          manufacturer: row.manufacturer || '',
+          category: row.category || 'Other',
+          description: row.notes || '',
+          image_url: '',
+          country_of_origin: '',
+          barcode: row.barcode || '',
+          quantity: '',
+          confidence: 'user_submitted'
+        },
+        row.barcode
+          ? [{ type: 'barcode', value: row.barcode, source: 'community' }]
+          : [],
+        {
+          key: 'community',
+          name: 'Community submission (approved)',
+          url: '',
+          type: 'user_submitted',
+          evidence: { submission_id: id, reviewer: admin.id }
+        }
+      );
+    }
+  }
+
+  return jsonResponse({ success: true });
+}
+
+async function enrichWithOptionalSources(product, env, barcode) {
+  const extra = { usda: null, pubchem_hint: null, who_guidance: null };
+  try {
+    if (product?.name || barcode) {
+      extra.usda = await lookupUsdaFdc(product?.name || '', env, barcode || product?.barcode);
+    }
+  } catch (_) {}
+  try {
+    // Single-ingredient hint only when description looks like a pure ingredient line
+    const ing = clean(product?.description || '', 80).split(',')[0];
+    if (ing && ing.length >= 4 && ing.length <= 40 && !/\d{6,}/.test(ing)) {
+      extra.pubchem_hint = await lookupPubChemCompound(ing);
+    }
+  } catch (_) {}
+  extra.who_guidance = {
+    name: 'WHO Medical Product Alerts',
+    url: 'https://www.who.int/teams/regulation-prequalification/incidents-and-SF/full-list-of-who-medical-product-alerts',
+    note: 'Check manually for substandard/falsified medicine alerts related to this product class. Not an automated match.'
+  };
+  return extra;
+}
+
+
 async function handleRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, '') || '/';
@@ -3237,6 +3532,34 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
   }
   if (path === '/admin/stats' && method === 'GET') {
     try { return await adminStatsRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+
+
+  
+  if (path === '/intelligence/matrix' && method === 'GET') {
+    return jsonResponse(intelligenceMatrixPayload());
+  }
+  if (path === '/intelligence/ingredient' && method === 'POST') {
+    return intelligenceIngredientRoute(request, env);
+  }
+  if (path === '/community/submit' && method === 'POST') {
+    return communitySubmitRoute(request, env);
+  }
+  if (path === '/admin/community' && method === 'GET') {
+    try { return await adminCommunityListRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
+      if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      throw e;
+    }
+  }
+  if (path === '/admin/community/review' && method === 'POST') {
+    try { return await adminCommunityReviewRoute(request, env); }
     catch (e) {
       if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
       if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
