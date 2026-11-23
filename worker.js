@@ -2107,13 +2107,24 @@ async function meRoute(request, env) {
   if (!user) {
     return jsonResponse({ success: false, error: 'Not signed in.' }, 401);
   }
+  const fromEnv = adminIdsFromEnv(env);
+  let isAdmin = fromEnv.includes(user.id);
+  if (!isAdmin) {
+    try {
+      isAdmin = await isPlatformAdmin(user.id, env);
+    } catch (_) {
+      isAdmin = false;
+    }
+  }
   return jsonResponse({
     success: true,
     user: {
       id: user.id,
       email: user.email,
-      display_name: user.display_name || ''
-    }
+      display_name: user.display_name || '',
+      is_admin: !!isAdmin
+    },
+    is_admin: !!isAdmin
   });
 }
 
@@ -3530,6 +3541,26 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
       throw e;
     }
   }
+  
+  if (path === '/admin/session' && method === 'GET') {
+    const user = await getUserFromAuthHeader(request, env);
+    if (!user) {
+      return jsonResponse({ success: false, error: 'Sign in required', is_admin: false }, 401);
+    }
+    const fromEnv = adminIdsFromEnv(env);
+    let isAdmin = fromEnv.includes(user.id);
+    if (!isAdmin) {
+      try { isAdmin = await isPlatformAdmin(user.id, env); } catch (_) { isAdmin = false; }
+    }
+    return jsonResponse({
+      success: true,
+      is_admin: !!isAdmin,
+      user: { id: user.id, email: user.email, display_name: user.display_name || '' },
+      admin_url: isAdmin ? 'https://eddysparkle.github.io/Truemark/admin.html' : null
+    });
+  }
+
+
   if (path === '/admin/stats' && method === 'GET') {
     try { return await adminStatsRoute(request, env); }
     catch (e) {
