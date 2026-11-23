@@ -55,15 +55,63 @@
       box-shadow: 0 6px 14px rgba(11, 110, 79, 0.25);
     }
     .brand span span { color: var(--green); }
-    .top-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .pill {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 8px 12px; border-radius: 999px;
-      border: 1px solid var(--line); background: #fff;
-      color: var(--green); font-size: 0.78rem; font-weight: 700;
-      text-decoration: none; cursor: pointer;
+    .top-actions {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
     }
-    .pill:hover { background: var(--green-soft); text-decoration: none; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 38px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--green);
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(11, 110, 79, 0.06);
+      transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+    .pill:hover {
+      background: var(--green-soft);
+      text-decoration: none;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(11, 110, 79, 0.1);
+    }
+    .pill-primary {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+      box-shadow: 0 6px 16px rgba(11, 110, 79, 0.2);
+    }
+    .pill-primary:hover {
+      background: var(--green-dark);
+      border-color: var(--green-dark);
+      color: #fff;
+    }
+    .pill-muted {
+      background: #fff;
+      color: var(--muted);
+      border-color: #d5e0db;
+    }
+    .pill-muted:hover {
+      background: #f4f7f5;
+      color: var(--ink);
+    }
+    @media (max-width: 420px) {
+      .brand span:not(.brand-mark) { font-size: 0.92rem; }
+      .pill { padding: 0 12px; font-size: 0.75rem; min-height: 36px; }
+    }
     .hero {
       background:
         radial-gradient(circle at 90% 10%, rgba(18, 150, 107, 0.18), transparent 40%),
@@ -179,9 +227,12 @@
         <span>True<span>Mark</span> Business</span>
       </a>
       <div class="top-actions">
-        <a class="pill" href="./">Consumer app</a>
-        <a class="pill" href="./admin.html">Admin</a>
-        <button type="button" class="pill" id="btnLogoutTop">Sign out</button>
+        <a class="pill pill-primary" href="./" title="Open TrueMark consumer app">
+          ← Consumer app
+        </a>
+        <button type="button" class="pill pill-muted" id="btnLogoutTop" title="Sign out of TrueMark Business">
+          Sign out
+        </button>
       </div>
     </header>
 
