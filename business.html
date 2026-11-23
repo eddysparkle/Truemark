@@ -230,6 +230,9 @@
         <a class="pill pill-primary" href="./" title="Open TrueMark consumer app">
           ← Consumer app
         </a>
+        <a class="pill" id="adminNavLink" href="./admin.html" hidden title="TrueMark platform admin">
+          Admin portal
+        </a>
         <button type="button" class="pill pill-muted" id="btnLogoutTop" title="Sign out of TrueMark Business">
           Sign out
         </button>
@@ -278,15 +281,38 @@
       Unit authentication only applies when you issue codes and shoppers verify them in TrueMark.
     </div>
 
-    <div class="card" id="authCard">
-      <div class="section-title"><h2>Account access</h2></div>
-      <p class="hint">Use the same email and password as the consumer TrueMark app.</p>
-      <label>Email <input id="email" type="email" autocomplete="username" /></label>
-      <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
-      <label>Display name (for sign up) <input id="displayName" type="text" autocomplete="nickname" /></label>
+    <div class="card" id="sessionBanner" hidden>
+      <div class="section-title">
+        <h2>Signed in</h2>
+      </div>
+      <p class="hint" id="sessionLabel">—</p>
       <div class="btn-row">
+        <button type="button" class="btn btn-secondary" id="btnLogoutBanner">Sign out</button>
+      </div>
+    </div>
+
+    <div class="card" id="authCard">
+      <div class="section-title"><h2 id="authTitle">Sign in to TrueMark Business</h2></div>
+      <p class="hint" id="authHint">Use the same email and password as the consumer TrueMark app.</p>
+
+      <div id="loginFields">
+        <label>Email <input id="email" type="email" autocomplete="username" /></label>
+        <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
+      </div>
+
+      <div id="signupFields" hidden>
+        <label>Display name <input id="displayName" type="text" autocomplete="nickname" placeholder="Your name or company contact" /></label>
+        <label>Email <input id="emailSignup" type="email" autocomplete="email" /></label>
+        <label>Password <input id="passwordSignup" type="password" autocomplete="new-password" placeholder="At least 8 characters" /></label>
+      </div>
+
+      <div class="btn-row" id="authActionsLogin">
         <button type="button" class="btn btn-primary" id="btnLogin">Sign in</button>
-        <button type="button" class="btn btn-secondary" id="btnSignup">Create account</button>
+        <button type="button" class="btn btn-secondary" id="btnShowSignup">Create account</button>
+      </div>
+      <div class="btn-row" id="authActionsSignup" hidden>
+        <button type="button" class="btn btn-primary" id="btnSignup">Create account</button>
+        <button type="button" class="btn btn-secondary" id="btnShowLogin">Back to sign in</button>
       </div>
       <p class="auth-error" id="authError"></p>
     </div>
@@ -419,19 +445,103 @@
     return "status-pill";
   }
 
+  
+
+  function setAuthMode(mode) {
+    const isSignup = mode === "signup";
+    const loginFields = $("loginFields");
+    const signupFields = $("signupFields");
+    const actionsLogin = $("authActionsLogin");
+    const actionsSignup = $("authActionsSignup");
+    if (loginFields) loginFields.hidden = isSignup;
+    if (signupFields) signupFields.hidden = !isSignup;
+    if (actionsLogin) actionsLogin.hidden = isSignup;
+    if (actionsSignup) actionsSignup.hidden = !isSignup;
+    if ($("authTitle")) {
+      $("authTitle").textContent = isSignup
+        ? "Create a TrueMark Business account"
+        : "Sign in to TrueMark Business";
+    }
+    if ($("authHint")) {
+      $("authHint").textContent = isSignup
+        ? "Create an account to register your company. You can use this same login on the consumer app."
+        : "Use the same email and password as the consumer TrueMark app.";
+    }
+    setError("");
+  }
+
+  function showSessionUI(user) {
+    const authCard = $("authCard");
+    const sessionBanner = $("sessionBanner");
+    if (authCard) authCard.hidden = true;
+    if (sessionBanner) sessionBanner.hidden = false;
+    if ($("sessionLabel")) {
+      $("sessionLabel").textContent =
+        (user && user.email)
+          ? ("You are signed in as " + user.email)
+          : "You are signed in.";
+    }
+  }
+
+  function showAuthUI() {
+    const authCard = $("authCard");
+    const sessionBanner = $("sessionBanner");
+    if (authCard) authCard.hidden = false;
+    if (sessionBanner) sessionBanner.hidden = true;
+    setAuthMode("login");
+  }
+
+  async function revealAdminLink() {
+    const link = $("adminNavLink");
+    if (!link) return;
+    link.hidden = true;
+    if (!token()) return;
+    try {
+      const data = await api("/admin/session");
+      if (data && data.is_admin) {
+        link.hidden = false;
+      }
+    } catch (_) {
+      link.hidden = true;
+    }
+  }
+
   async function login(isSignup) {
     setError("");
-    const email = $("email").value.trim();
-    const password = $("password").value;
+    let email, password, displayName;
+    if (isSignup) {
+      email = ($("emailSignup") || $("email")).value.trim();
+      password = ($("passwordSignup") || $("password")).value;
+      displayName = ($("displayName") && $("displayName").value.trim()) || "";
+      if (!email || !password) {
+        setError("Email and password are required.");
+        return;
+      }
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters.");
+        return;
+      }
+    } else {
+      email = $("email").value.trim();
+      password = $("password").value;
+      if (!email || !password) {
+        setError("Email and password are required.");
+        return;
+      }
+    }
+
     const path = isSignup ? "/auth/signup" : "/auth/login";
     const body = { email, password };
-    if (isSignup) body.display_name = $("displayName").value.trim();
+    if (isSignup) body.display_name = displayName;
+
     try {
       const data = await api(path, { method: "POST", body: JSON.stringify(body) });
       if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
       if (data.user) localStorage.setItem(USER_KEY, JSON.stringify(data.user));
       setHero(data.user?.email || email, "—", "—");
+      showSessionUI(data.user || { email });
       await refreshBiz();
+      await revealAdminLink();
     } catch (e) {
       setError(e.message);
     }
@@ -447,106 +557,18 @@
     $("statLimit").textContent = "—";
     $("dashDetail").innerHTML = '<p class="msg">Signed out.</p>';
     $("productList").innerHTML = "";
+    const al = $("adminNavLink");
+    if (al) al.hidden = true;
+    showAuthUI();
   }
 
-  async function refreshBiz() {
-    try {
-      const data = await api("/business/me");
-      const b = data.business;
-      const plan = data.plan;
-      const products = data.products || [];
-
-      if (!b) {
-        setHero(
-          (JSON.parse(localStorage.getItem(USER_KEY) || "{}").email) || "signed in",
-          "not registered",
-          "starter"
-        );
-        $("statStatus").textContent = "None";
-        $("statProducts").textContent = "0";
-        $("statSub").textContent = "n/a";
-        $("statLimit").textContent = plan ? String(plan.max_products) : "5";
-        $("dashDetail").innerHTML =
-          '<p class="msg">No company yet. Submit a registration on the left.</p>';
-        $("productList").innerHTML = '<p class="msg">No products yet.</p>';
-        return;
-      }
-
-      setHero(b.email || "signed in", b.legal_name || "Company", b.plan_code || "starter");
-      $("statStatus").innerHTML =
-        '<span class="' + statusClass(b.status) + '">' + esc(b.status) + "</span>";
-      $("statProducts").textContent = String(products.length);
-      $("statSub").textContent = data.subscription_live ? "Live" : "Off";
-      $("statLimit").textContent = plan ? String(plan.max_products) : "—";
-
-      $("dashDetail").innerHTML =
-        '<p><span class="' + statusClass(b.status) + '">' + esc(b.status) + "</span></p>" +
-        '<p style="margin:10px 0 4px;font-weight:800">' + esc(b.legal_name) + "</p>" +
-        '<p class="msg">' + esc(b.trading_name || "") + "</p>" +
-        '<p class="msg">Email: ' + esc(b.email) + "</p>" +
-        '<p class="msg">Phone: ' + esc(b.phone || "—") + "</p>" +
-        '<p class="msg">CAC: ' + esc(b.registration_number || "—") + "</p>" +
-        '<p class="msg">Plan: <strong>' + esc(b.plan_code || "starter") + "</strong></p>" +
-        '<p class="msg">Subscription live: <strong>' +
-        (data.subscription_live ? "yes" : "no") +
-        "</strong></p>";
-
-      $("productList").innerHTML = products.length
-        ? products
-            .map(
-              (p) =>
-                '<div class="product-item"><strong>' +
-                esc(p.name) +
-                '</strong><div class="meta">' +
-                [p.brand, p.barcode, p.nafdac_number].filter(Boolean).map(esc).join(" · ") +
-                '</div><span class="badge">' +
-                esc(p.record_type || "manufacturer_registered") +
-                "</span></div>"
-            )
-            .join("")
-        : '<p class="msg">No products yet. Add your first product above.</p>';
-    } catch (e) {
-      $("dashDetail").innerHTML = '<p class="msg">' + esc(e.message) + "</p>";
-    }
-  }
-
-  async function loadPlans() {
-    try {
-      const data = await api("/business/plans");
-      $("planGrid").innerHTML = (data.plans || [])
-        .map((p) => {
-          const monthly = Number(p.price_monthly_kobo || 0) / 100;
-          const featured = p.code === "business" || p.code === "professional";
-          const price =
-            p.code === "enterprise"
-              ? "Custom"
-              : monthly === 0
-              ? "Free"
-              : "₦" + monthly.toLocaleString();
-          return (
-            '<div class="plan' +
-            (featured ? " featured" : "") +
-            '"><strong>' +
-            esc(p.name) +
-            '</strong><div class="price">' +
-            price +
-            (monthly ? '<span style="font-size:0.8rem;font-weight:600"> / mo</span>' : "") +
-            '</div><p class="muted">' +
-            esc(p.description || "") +
-            '</p><p class="muted">Max products: ' +
-            esc(p.max_products) +
-            "</p></div>"
-          );
-        })
-        .join("");
-    } catch (e) {
-      $("planGrid").textContent = e.message;
-    }
-  }
 
   $("btnLogin").onclick = () => login(false);
   $("btnSignup").onclick = () => login(true);
+  $("btnShowSignup").onclick = () => setAuthMode("signup");
+  $("btnShowLogin").onclick = () => setAuthMode("login");
   $("btnLogoutTop").onclick = logout;
+  if ($("btnLogoutBanner")) $("btnLogoutBanner").onclick = logout;
 
   $("btnRegister").onclick = async () => {
     try {
@@ -632,17 +654,18 @@
       }
     }
     if (token()) {
-      try {
-        const u = JSON.parse(localStorage.getItem(USER_KEY) || "{}");
-        setHero(u.email || "signed in", "…", "…");
-      } catch {
-        setHero("signed in", "…", "…");
-      }
+      let u = {};
+      try { u = JSON.parse(localStorage.getItem(USER_KEY) || "{}"); } catch (_) {}
+      setHero(u.email || "signed in", "…", "…");
+      showSessionUI(u.email ? u : { email: "signed in" });
       await refreshBiz();
+      await revealAdminLink();
     } else {
       setHero("not signed in", "—", "—");
+      showAuthUI();
     }
     await loadPlans();
+    await revealAdminLink();
   })();
   </script>
 </body>
