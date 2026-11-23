@@ -2,50 +2,205 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>TrueMark Admin</title>
   <link rel="stylesheet" href="style.css" />
   <style>
-    .wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 80px; }
-    .wrap h1 { color: #0b6e4f; font-size: 1.35rem; }
-    .card {
-      background: #fff; border: 1px solid #d7ebe2; border-radius: 14px;
-      padding: 14px; margin: 12px 0;
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #f3f7f5;
+      font-family: "DM Sans", system-ui, sans-serif;
+      color: #12352a;
     }
-    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #e8f0ec; vertical-align: top; }
-    .muted { color: #5a6f66; font-size: 0.82rem; }
-    label { display: block; font-size: 0.8rem; font-weight: 700; margin: 8px 0 4px; }
-    input, select { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 1px solid #cfe0d8; }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 16px 14px 96px;
+      overflow-x: hidden;
+    }
+    .wrap h1 {
+      color: #0b6e4f;
+      font-size: 1.25rem;
+      margin: 8px 0 6px;
+    }
+    .top-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .top-nav a {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid #d5ebe0;
+      color: #0b6e4f;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .muted { color: #5a6f66; font-size: 0.82rem; line-height: 1.45; }
+    .card {
+      background: #fff;
+      border: 1px solid #d7ebe2;
+      border-radius: 16px;
+      padding: 14px;
+      margin: 12px 0;
+      box-shadow: 0 8px 22px rgba(11, 110, 79, 0.05);
+      overflow: hidden;
+    }
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 0.95rem;
+      color: #12352a;
+    }
+    label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin: 10px 0 4px;
+      color: #2a4a3e;
+    }
+    input, select {
+      width: 100%;
+      max-width: 100%;
+      padding: 11px 12px;
+      border-radius: 12px;
+      border: 1px solid #cfe0d8;
+      font: inherit;
+      background: #fafcfb;
+    }
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .scan-again-button, .chip-btn {
+      border: none;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+    .scan-again-button {
+      background: #0b6e4f;
+      color: #fff;
+      border-radius: 12px;
+      padding: 11px 16px;
+    }
+    .chip-btn {
+      background: #eef6f1;
+      color: #0b6e4f;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 0.78rem;
+      border: 1px solid #d5ebe0;
+    }
+    .chip-btn-danger {
+      background: #fdecec;
+      color: #a11818;
+      border-color: #f5c6c6;
+    }
+    .chip-btn-warn {
+      background: #fff6e5;
+      color: #8a5a00;
+      border-color: #f0d9a8;
+    }
+    #stats {
+      margin: 0;
+      padding: 10px 12px;
+      background: #f7fbf8;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      line-height: 1.5;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .biz-list { display: flex; flex-direction: column; gap: 10px; }
+    .biz-item {
+      border: 1px solid #e0efe8;
+      border-radius: 14px;
+      padding: 12px;
+      background: #f9fcfa;
+    }
+    .biz-item .name {
+      font-weight: 800;
+      font-size: 0.92rem;
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+    .biz-meta {
+      font-size: 0.75rem;
+      color: #5a6f66;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .status {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .status-pending { background: #fff6e5; color: #8a5a00; }
+    .status-approved { background: #e7f7ef; color: #0b6e4f; }
+    .status-rejected, .status-suspended { background: #fdecec; color: #a11818; }
+    .biz-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .empty {
+      text-align: center;
+      padding: 18px 8px;
+      color: #5a6f66;
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <p><a href="./business.html">← Business portal</a> · <a href="./">Consumer app</a></p>
+    <div class="top-nav">
+      <a href="./">Consumer app</a>
+      <a href="./business.html">Business portal</a>
+    </div>
+
     <h1>TrueMark Admin</h1>
-    <p class="muted">Approve manufacturers, adjust plan prices, view revenue. Set <code>ADMIN_USER_IDS</code> on the Worker to your user id(s).</p>
+    <p class="muted">Approve manufacturers, adjust plan prices, and view revenue. Only accounts listed in <code>ADMIN_USER_IDS</code> can use this page.</p>
 
     <div class="card">
-      <h2 style="margin:0 0 8px;font-size:1rem;">Sign in</h2>
-      <label>Email <input id="email" type="email" /></label>
-      <label>Password <input id="password" type="password" /></label>
-      <button type="button" class="scan-again-button" id="btnLogin" style="margin-top:10px;">Sign in</button>
-      <p class="muted" id="who">Not signed in</p>
+      <h2>Sign in</h2>
+      <label>Email <input id="email" type="email" autocomplete="username" /></label>
+      <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
+      <div class="btn-row">
+        <button type="button" class="scan-again-button" id="btnLogin">Sign in</button>
+      </div>
+      <p class="muted" id="who" style="margin-top:10px;">Not signed in</p>
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 8px;font-size:1rem;">Platform stats</h2>
-      <pre id="stats" class="muted" style="white-space:pre-wrap;"></pre>
-      <button type="button" class="chip-btn" id="btnStats">Refresh stats</button>
+      <h2>Platform stats</h2>
+      <pre id="stats">Sign in to load stats.</pre>
+      <div class="btn-row">
+        <button type="button" class="chip-btn" id="btnStats">Refresh stats</button>
+      </div>
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 8px;font-size:1rem;">Businesses</h2>
+      <h2>Business applications</h2>
       <div id="bizTable" class="muted">Load after sign-in</div>
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 8px;font-size:1rem;">Update plan pricing</h2>
+      <h2>Update plan pricing</h2>
       <label>Plan code
         <select id="planCode">
           <option value="starter">starter</option>
@@ -54,13 +209,16 @@
           <option value="enterprise">enterprise</option>
         </select>
       </label>
-      <label>Monthly price (kobo) <input id="priceMonthly" type="number" placeholder="2500000 = ₦25,000" /></label>
-      <label>Annual price (kobo) <input id="priceAnnual" type="number" /></label>
-      <label>Max products <input id="maxProducts" type="number" /></label>
-      <button type="button" class="scan-again-button" id="btnPlan" style="margin-top:10px;">Save plan</button>
+      <label>Monthly price (kobo) <input id="priceMonthly" type="number" inputmode="numeric" placeholder="2500000 = ₦25,000" /></label>
+      <label>Annual price (kobo) <input id="priceAnnual" type="number" inputmode="numeric" /></label>
+      <label>Max products <input id="maxProducts" type="number" inputmode="numeric" /></label>
+      <div class="btn-row">
+        <button type="button" class="scan-again-button" id="btnPlan">Save plan</button>
+      </div>
       <p id="planMsg" class="muted"></p>
     </div>
   </div>
+
   <script>
   const API = "https://truemark-ai.edialeeghonghon.workers.dev";
   const TOKEN_KEY = "truemark_auth_token";
@@ -72,20 +230,35 @@
   });
 
   async function api(path, options = {}) {
-    const res = await fetch(API + path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+    const res = await fetch(API + path, {
+      ...options,
+      headers: { ...headers(), ...(options.headers || {}) }
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || data.message || String(res.status));
     return data;
+  }
+
+  function esc(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   $("btnLogin").onclick = async () => {
     try {
       const data = await api("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email: $("email").value.trim(), password: $("password").value })
+        body: JSON.stringify({
+          email: $("email").value.trim(),
+          password: $("password").value
+        })
       });
       if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
-      $("who").textContent = "Signed in as " + (data.user?.email || "") + " · id: " + (data.user?.id || "");
+      $("who").textContent =
+        "Signed in as " + (data.user?.email || "") + " · id: " + (data.user?.id || "");
       await loadAll();
     } catch (e) {
       $("who").textContent = e.message;
@@ -95,45 +268,46 @@
   async function loadStats() {
     const data = await api("/admin/stats");
     const s = data.stats || {};
-    $("stats").textContent = JSON.stringify(s, null, 2) +
-      "\n\nRevenue (NGN): " + ((s.revenue_kobo || 0) / 100).toLocaleString();
+    $("stats").textContent =
+      "Businesses: " + (s.businesses || 0) +
+      "\nApproved: " + (s.approved || 0) +
+      "\nSuccessful payments: " + (s.successful_payments || 0) +
+      "\nRevenue (NGN): " + ((s.revenue_kobo || 0) / 100).toLocaleString() +
+      "\nConsumer reports: " + (s.consumer_reports || 0);
   }
 
   async function loadBusinesses() {
     const data = await api("/admin/businesses");
     const rows = data.businesses || [];
     if (!rows.length) {
-      $("bizTable").textContent = "No businesses yet.";
+      $("bizTable").innerHTML = '<div class="empty">No business applications yet.</div>';
       return;
     }
+
     $("bizTable").innerHTML =
-      "<table><thead><tr><th>Company</th><th>Status</th><th>Plan</th><th>Actions</th></tr></thead><tbody>" +
+      '<div class="biz-list">' +
       rows
         .map((b) => {
+          const st = (b.status || "pending").toLowerCase();
           return (
-            "<tr><td>" +
-            (b.legal_name || "") +
-            "<br/><span class='muted'>" +
-            (b.email || "") +
-            "</span></td><td>" +
-            b.status +
-            "</td><td>" +
-            (b.plan_code || "") +
-            "</td><td>" +
-            "<button type='button' data-id='" +
-            b.id +
-            "' data-status='approved' class='chip-btn approve'>Approve</button> " +
-            "<button type='button' data-id='" +
-            b.id +
-            "' data-status='rejected' class='chip-btn reject'>Reject</button> " +
-            "<button type='button' data-id='" +
-            b.id +
-            "' data-status='suspended' class='chip-btn'>Suspend</button>" +
-            "</td></tr>"
+            '<div class="biz-item">' +
+            '<div class="name">' + esc(b.legal_name) + "</div>" +
+            '<div class="biz-meta">' +
+            esc(b.email) +
+            (b.phone ? " · " + esc(b.phone) : "") +
+            "<br/>Plan: " + esc(b.plan_code || "starter") +
+            (b.registration_number ? " · CAC: " + esc(b.registration_number) : "") +
+            "</div>" +
+            '<span class="status status-' + esc(st) + '">' + esc(st) + "</span>" +
+            '<div class="biz-actions">' +
+            '<button type="button" class="chip-btn" data-id="' + esc(b.id) + '" data-status="approved">Approve</button>' +
+            '<button type="button" class="chip-btn chip-btn-warn" data-id="' + esc(b.id) + '" data-status="rejected">Reject</button>' +
+            '<button type="button" class="chip-btn chip-btn-danger" data-id="' + esc(b.id) + '" data-status="suspended">Suspend</button>' +
+            "</div></div>"
           );
         })
         .join("") +
-      "</tbody></table>";
+      "</div>";
 
     $("bizTable").querySelectorAll("button[data-id]").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -146,6 +320,7 @@
             })
           });
           await loadBusinesses();
+          await loadStats();
         } catch (e) {
           alert(e.message);
         }
@@ -159,6 +334,7 @@
       await loadBusinesses();
     } catch (e) {
       $("stats").textContent = e.message;
+      $("bizTable").textContent = e.message;
     }
   }
 
@@ -177,7 +353,7 @@
   };
 
   if (token()) {
-    $("who").textContent = "Session present — loading…";
+    $("who").textContent = "Session found — loading…";
     loadAll();
   }
   </script>
