@@ -7,7 +7,7 @@
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '8.0.0';
+const VERSION = '8.1.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -351,7 +351,60 @@ async function searchProducts(db, query, limit = 15) {
     LIMIT ?
   `).bind(like, like, like, limit).all();
 
-  return result.results || [];
+  const rows = result.results || [];
+  if (rows.length >= limit) return rows;
+
+  // Also surface approved manufacturer-registered products not yet mirrored
+  try {
+    await ensureBusinessTables(db);
+    const remaining = limit - rows.length;
+    const biz = await db.prepare(`
+      SELECT bp.id, bp.name, bp.brand, bp.category, bp.description, bp.image_url,
+             bp.barcode, bp.nafdac_number, bp.record_type, b.legal_name AS manufacturer,
+             b.trading_name
+      FROM business_products bp
+      INNER JOIN businesses b ON b.id = bp.business_id
+      WHERE bp.status = 'active'
+        AND b.status = 'approved'
+        AND (
+          lower(bp.name) LIKE ?
+          OR lower(COALESCE(bp.brand, '')) LIKE ?
+          OR lower(COALESCE(b.legal_name, '')) LIKE ?
+          OR lower(COALESCE(b.trading_name, '')) LIKE ?
+          OR lower(COALESCE(bp.barcode, '')) LIKE ?
+          OR lower(COALESCE(bp.nafdac_number, '')) LIKE ?
+        )
+      ORDER BY bp.updated_at DESC
+      LIMIT ?
+    `).bind(like, like, like, like, like, like, remaining).all();
+
+    const seen = new Set(rows.map((r) => normalize(r.name) + '|' + normalize(r.brand || '')));
+    for (const bp of (biz.results || [])) {
+      const key = normalize(bp.name) + '|' + normalize(bp.brand || '');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push({
+        id: bp.id,
+        name: bp.name,
+        normalized_name: normalize(bp.name),
+        brand: bp.brand || '',
+        manufacturer: bp.manufacturer || bp.trading_name || '',
+        category: bp.category || '',
+        description: bp.description || '',
+        image_url: bp.image_url || '',
+        country_of_origin: '',
+        confidence: 'manufacturer_registered',
+        record_type: bp.record_type || 'manufacturer_registered',
+        barcode: bp.barcode || '',
+        nafdac_number: bp.nafdac_number || '',
+        source_label: 'Manufacturer registered'
+      });
+    }
+  } catch (_) {
+    // business tables may not exist yet
+  }
+
+  return rows;
 }
 
 async function upsertProduct(db, product, identifiers = [], source = null) {
@@ -2502,9 +2555,46 @@ async function addBusinessProductRoute(request, env) {
   ).run();
 
   const product = await db.prepare('SELECT * FROM business_products WHERE id = ?').bind(id).first();
+
+  // Mirror into consumer catalogue so name/barcode search can find it
+  try {
+    const identifiers = [];
+    const barcode = clean(body.barcode, 80);
+    const gtin = clean(body.gtin, 80);
+    const nafdac = clean(body.nafdac_number, 80);
+    if (barcode) identifiers.push({ type: 'barcode', value: barcode, source: 'manufacturer' });
+    if (gtin && gtin !== barcode) identifiers.push({ type: 'barcode', value: gtin, source: 'manufacturer' });
+    if (nafdac) identifiers.push({ type: 'nafdac', value: nafdac, source: 'manufacturer' });
+
+    await upsertProduct(
+      db,
+      {
+        id: id,
+        name: name,
+        brand: clean(body.brand, 160),
+        manufacturer: clean(business.legal_name || business.trading_name || '', 200),
+        category: clean(body.category, 120),
+        description: clean(body.description, 2000),
+        image_url: clean(body.image_url, 2000),
+        country_of_origin: clean(body.country_of_origin || 'NG', 120),
+        confidence: 'manufacturer_registered'
+      },
+      identifiers,
+      {
+        key: 'manufacturer',
+        name: 'Manufacturer registered',
+        url: '',
+        type: 'manufacturer_registered'
+      }
+    );
+  } catch (mirrorErr) {
+    console.warn('TrueMark manufacturer catalogue mirror failed:', mirrorErr && mirrorErr.message);
+  }
+
   return jsonResponse({
     success: true,
     product,
+    catalogue_indexed: true,
     record_type: 'manufacturer_registered',
     disclaimer:
       'Manufacturer-registered product data is provided by the business. It is not NAFDAC verification and does not authenticate a physical unit.'
