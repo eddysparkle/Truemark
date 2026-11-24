@@ -36,14 +36,7 @@
     a { color: var(--green); text-decoration: none; font-weight: 600; }
     a:hover { text-decoration: underline; }
     .shell { max-width: 1100px; margin: 0 auto; padding: 0 16px 64px; }
-    .topbar {
-      position: sticky; top: 0; z-index: 40;
-      backdrop-filter: blur(10px);
-      background: rgba(242, 247, 244, 0.92);
-      border-bottom: 1px solid var(--line);
-      margin: 0 -16px 18px; padding: 12px 16px;
-      display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    }
+    
     .brand {
       display: flex; align-items: center; gap: 10px;
       font-weight: 800; color: var(--ink); text-decoration: none;
@@ -55,44 +48,67 @@
       box-shadow: 0 6px 14px rgba(11, 110, 79, 0.25);
     }
     .brand span span { color: var(--green); }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      backdrop-filter: blur(10px);
+      background: rgba(242, 247, 244, 0.94);
+      border-bottom: 1px solid var(--line);
+      margin: 0 -16px 18px;
+      padding: 10px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .topbar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
     .top-actions {
       display: flex;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       gap: 8px;
       align-items: center;
       justify-content: flex-end;
+      flex: 1;
+      min-width: 0;
     }
     .pill {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      min-height: 38px;
-      padding: 0 14px;
+      min-height: 36px;
+      max-width: 100%;
+      padding: 0 12px;
       border-radius: 999px;
       border: 1px solid var(--line);
       background: #fff;
       color: var(--green);
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 700;
       text-decoration: none;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(11, 110, 79, 0.06);
-      transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+      box-shadow: 0 2px 8px rgba(11, 110, 79, 0.05);
+      transition: background 0.15s ease, box-shadow 0.15s ease;
       white-space: nowrap;
       font-family: inherit;
+      line-height: 1;
     }
     .pill:hover {
       background: var(--green-soft);
       text-decoration: none;
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(11, 110, 79, 0.1);
+      box-shadow: 0 4px 12px rgba(11, 110, 79, 0.08);
     }
     .pill-primary {
       background: var(--green);
       border-color: var(--green);
       color: #fff;
-      box-shadow: 0 6px 16px rgba(11, 110, 79, 0.2);
+      box-shadow: 0 4px 12px rgba(11, 110, 79, 0.18);
     }
     .pill-primary:hover {
       background: var(--green-dark);
@@ -108,9 +124,42 @@
       background: #f4f7f5;
       color: var(--ink);
     }
-    @media (max-width: 420px) {
-      .brand span:not(.brand-mark) { font-size: 0.92rem; }
-      .pill { padding: 0 12px; font-size: 0.75rem; min-height: 36px; }
+    .staff-bar {
+      display: none;
+      width: 100%;
+      padding-top: 2px;
+    }
+    .staff-bar.show {
+      display: block;
+    }
+    .staff-bar a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 10px;
+      border: 1px dashed #b7d6c8;
+      background: #f7fbf9;
+      color: #0b6e4f;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .staff-bar a:hover { background: #eef7f2; }
+    @media (max-width: 480px) {
+      .brand { min-width: 0; }
+      .brand span:not(.brand-mark) {
+        font-size: 0.88rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 42vw;
+      }
+      .pill {
+        padding: 0 10px;
+        font-size: 0.72rem;
+        min-height: 34px;
+      }
     }
     .hero {
       background:
@@ -222,20 +271,18 @@
 <body>
   <div class="shell">
     <header class="topbar">
-      <a class="brand" href="./business.html">
-        <span class="brand-mark">✓</span>
-        <span>True<span>Mark</span> Business</span>
-      </a>
-      <div class="top-actions">
-        <a class="pill pill-primary" href="./" title="Open TrueMark consumer app">
-          ← Consumer app
+      <div class="topbar-row">
+        <a class="brand" href="./business.html">
+          <span class="brand-mark">✓</span>
+          <span>True<span>Mark</span> Business</span>
         </a>
-        <a class="pill" id="adminNavLink" href="./admin.html" hidden title="TrueMark platform admin">
-          Admin portal
-        </a>
-        <button type="button" class="pill pill-muted" id="btnLogoutTop" title="Sign out of TrueMark Business">
-          Sign out
-        </button>
+        <div class="top-actions">
+          <a class="pill pill-primary" href="./" title="Open TrueMark consumer app">Consumer app</a>
+          <button type="button" class="pill pill-muted" id="btnLogoutTop" title="Sign out">Sign out</button>
+        </div>
+      </div>
+      <div class="staff-bar" id="staffBar" hidden>
+        <a id="adminNavLink" href="./admin.html" title="Platform admin only">Staff · Admin portal</a>
       </div>
     </header>
 
@@ -493,16 +540,28 @@
 
   async function revealAdminLink() {
     const link = $("adminNavLink");
-    if (!link) return;
-    link.hidden = true;
+    const bar = $("staffBar");
+    if (link) link.hidden = true;
+    if (bar) {
+      bar.hidden = true;
+      bar.classList.remove("show");
+    }
     if (!token()) return;
     try {
       const data = await api("/admin/session");
       if (data && data.is_admin) {
-        link.hidden = false;
+        if (link) link.hidden = false;
+        if (bar) {
+          bar.hidden = false;
+          bar.classList.add("show");
+        }
       }
     } catch (_) {
-      link.hidden = true;
+      if (link) link.hidden = true;
+      if (bar) {
+        bar.hidden = true;
+        bar.classList.remove("show");
+      }
     }
   }
 
@@ -559,6 +618,11 @@
     $("productList").innerHTML = "";
     const al = $("adminNavLink");
     if (al) al.hidden = true;
+    const bar = $("staffBar");
+    if (bar) {
+      bar.hidden = true;
+      bar.classList.remove("show");
+    }
     showAuthUI();
   }
 
