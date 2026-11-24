@@ -285,4 +285,22 @@
 
   document.addEventListener("DOMContentLoaded", refreshAdminEntry);
   window.trueMarkRefreshAdminEntry = refreshAdminEntry;
+  window.trueMarkRefreshDrawer = window.trueMarkRefreshDrawer;
+})();
+
+
+/* Keep side drawer account / admin section in sync */
+(function () {
+  const origSet = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function (k, v) {
+    origSet(k, v);
+    if (k === "truemark_auth_token" || k === "truemark_auth_user") {
+      if (typeof window.trueMarkRefreshDrawer === "function") {
+        setTimeout(window.trueMarkRefreshDrawer, 50);
+      }
+      if (typeof window.trueMarkRefreshAdminEntry === "function") {
+        setTimeout(window.trueMarkRefreshAdminEntry, 50);
+      }
+    }
+  };
 })();
