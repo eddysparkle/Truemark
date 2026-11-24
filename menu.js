@@ -52,8 +52,9 @@
       emailEl.textContent = user && user.email ? user.email : "Not signed in";
     }
 
+    // Admin link stays visible for easy access; admin.html still requires authorised sign-in
     if (adminSection) {
-      adminSection.hidden = true;
+      adminSection.hidden = false;
     }
 
     if (!token) return;
@@ -63,9 +64,6 @@
         headers: { Authorization: "Bearer " + token }
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.is_admin && adminSection) {
-        adminSection.hidden = false;
-      }
       if (data.user && data.user.email && emailEl) {
         emailEl.textContent = data.user.email;
       }
