@@ -582,6 +582,112 @@
     }
   }
 
+
+  async function refreshBiz() {
+    try {
+      const data = await api("/business/me");
+      const biz = data.business;
+      const plan = data.plan;
+      const products = data.products || [];
+      const subLive = !!data.subscription_live;
+
+      if (!biz) {
+        let email = "signed in";
+        try {
+          email = (JSON.parse(localStorage.getItem(USER_KEY) || "{}").email) || email;
+        } catch (_) {}
+        setHero(email, "not registered", plan?.code || "starter");
+        if ($("statStatus")) $("statStatus").textContent = "None";
+        if ($("statProducts")) $("statProducts").textContent = "0";
+        if ($("statSub")) $("statSub").textContent = "n/a";
+        if ($("statLimit")) $("statLimit").textContent = plan ? String(plan.max_products) : "5";
+        if ($("dashDetail")) {
+          $("dashDetail").innerHTML =
+            '<p class="msg">No company yet. Submit a registration on the left.</p>';
+        }
+        if ($("productList")) {
+          $("productList").innerHTML = '<p class="msg">No products yet.</p>';
+        }
+        return data;
+      }
+
+      setHero(biz.email || "signed in", biz.legal_name || "Company", biz.plan_code || "starter");
+
+      if ($("statStatus")) {
+        $("statStatus").innerHTML =
+          '<span class="' + statusClass(biz.status) + '">' + esc(biz.status || "pending") + "</span>";
+      }
+      if ($("statProducts")) $("statProducts").textContent = String(products.length);
+      if ($("statSub")) $("statSub").textContent = subLive ? "Live" : "Off";
+      if ($("statLimit")) $("statLimit").textContent = plan ? String(plan.max_products) : "—";
+
+      if ($("dashDetail")) {
+        $("dashDetail").innerHTML =
+          '<p><span class="' + statusClass(biz.status) + '">' + esc(biz.status || "pending") + "</span></p>" +
+          '<p style="margin:10px 0 4px;font-weight:800">' + esc(biz.legal_name) + "</p>" +
+          '<p class="msg">' + esc(biz.trading_name || "") + "</p>" +
+          '<p class="msg">Email: ' + esc(biz.email) + "</p>" +
+          '<p class="msg">Phone: ' + esc(biz.phone || "—") + "</p>" +
+          '<p class="msg">CAC: ' + esc(biz.registration_number || "—") + "</p>" +
+          '<p class="msg">Plan: <strong>' + esc(biz.plan_code || "starter") + "</strong></p>" +
+          '<p class="msg">Subscription live: <strong>' + (subLive ? "yes" : "no") + "</strong></p>";
+      }
+
+      if ($("productList")) {
+        $("productList").innerHTML = products.length
+          ? products.map((prod) =>
+              '<div class="product-item"><strong>' + esc(prod.name) +
+              '</strong><div class="meta">' +
+              [prod.brand, prod.barcode, prod.nafdac_number].filter(Boolean).map(esc).join(" · ") +
+              '</div><span class="badge">' +
+              esc(prod.record_type || "manufacturer_registered") +
+              "</span></div>"
+            ).join("")
+          : '<p class="msg">No products yet. Add your first product above.</p>';
+      }
+
+      return data;
+    } catch (e) {
+      if ($("dashDetail")) {
+        $("dashDetail").innerHTML = '<p class="msg">' + esc(e.message) + "</p>";
+      }
+      throw e;
+    }
+  }
+
+  async function loadPlans() {
+    try {
+      const data = await api("/business/plans");
+      const plans = data.plans || [];
+      if ($("planGrid")) {
+        $("planGrid").innerHTML = plans.length
+          ? plans.map((plan) => {
+              const monthly = Number(plan.price_monthly_kobo || 0) / 100;
+              const featured = plan.code === "business" || plan.code === "professional";
+              const price =
+                plan.code === "enterprise"
+                  ? "Custom"
+                  : monthly === 0
+                  ? "Free"
+                  : "₦" + monthly.toLocaleString();
+              return (
+                '<div class="plan' + (featured ? " featured" : "") + '">' +
+                "<strong>" + esc(plan.name) + "</strong>" +
+                '<div class="price">' + price +
+                (monthly ? '<span style="font-size:0.8rem;font-weight:600"> / mo</span>' : "") +
+                "</div>" +
+                '<p class="muted">' + esc(plan.description || "") + "</p>" +
+                '<p class="muted">Max products: ' + esc(plan.max_products) + "</p>" +
+                "</div>"
+              );
+            }).join("")
+          : '<p class="msg">No plans available.</p>';
+      }
+    } catch (e) {
+      if ($("planGrid")) $("planGrid").textContent = e.message;
+    }
+  }
+
   async function login(isSignup) {
     setError("");
     let email, password, displayName;
@@ -655,6 +761,11 @@
 
   $("btnRegister").onclick = async () => {
     try {
+      if (!$("legalName").value.trim()) {
+        $("bizStatus").textContent = "Legal name is required.";
+        return;
+      }
+      $("bizStatus").textContent = "Submitting application…";
       const data = await api("/business/register", {
         method: "POST",
         body: JSON.stringify({
@@ -666,10 +777,11 @@
           website: $("website").value
         })
       });
-      $("bizStatus").textContent = data.message || "Submitted.";
+      $("bizStatus").textContent =
+        data.message || "Application submitted. Status is pending until TrueMark admin approval.";
       await refreshBiz();
     } catch (e) {
-      $("bizStatus").textContent = e.message;
+      $("bizStatus").textContent = e.message || "Could not submit application.";
     }
   };
 
