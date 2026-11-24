@@ -263,8 +263,17 @@
       padding: 12px; margin-top: 10px; max-height: 220px; overflow: auto;
     }
     .section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .footer-actions {
+      margin-top: 28px;
+      display: flex;
+      justify-content: center;
+      padding: 8px 0 4px;
+    }
+    .footer-actions .btn {
+      min-width: 140px;
+    }
     .footer-note {
-      margin-top: 22px; text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.5;
+      margin-top: 12px; text-align: center; font-size: 0.75rem; color: var(--muted); line-height: 1.5;
     }
   </style>
 </head>
@@ -278,7 +287,6 @@
         </a>
         <div class="top-actions">
           <a class="pill pill-primary" href="./" title="Open TrueMark consumer app">Consumer app</a>
-          <button type="button" class="pill pill-muted" id="btnLogoutTop" title="Sign out">Sign out</button>
         </div>
       </div>
       <div class="staff-bar" id="staffBar" hidden>
@@ -333,9 +341,6 @@
         <h2>Signed in</h2>
       </div>
       <p class="hint" id="sessionLabel">—</p>
-      <div class="btn-row">
-        <button type="button" class="btn btn-secondary" id="btnLogoutBanner">Sign out</button>
-      </div>
     </div>
 
     <div class="card" id="authCard">
@@ -353,13 +358,9 @@
         <label>Password <input id="passwordSignup" type="password" autocomplete="new-password" placeholder="At least 8 characters" /></label>
       </div>
 
-      <div class="btn-row" id="authActionsLogin">
-        <button type="button" class="btn btn-primary" id="btnLogin">Sign in</button>
-        <button type="button" class="btn btn-secondary" id="btnShowSignup">Create account</button>
-      </div>
-      <div class="btn-row" id="authActionsSignup" hidden>
-        <button type="button" class="btn btn-primary" id="btnSignup">Create account</button>
-        <button type="button" class="btn btn-secondary" id="btnShowLogin">Back to sign in</button>
+      <div class="btn-row" id="authActions">
+        <button type="button" class="btn btn-primary" id="btnPrimaryAuth">Sign in</button>
+        <button type="button" class="btn btn-secondary" id="btnSecondaryAuth">Create account</button>
       </div>
       <p class="auth-error" id="authError"></p>
     </div>
@@ -443,6 +444,9 @@
       </div>
     </div>
 
+    <div class="footer-actions" id="footerActions">
+      <button type="button" class="btn btn-secondary" id="btnLogoutFooter" hidden>Sign out</button>
+    </div>
     <p class="footer-note">
       TrueMark Business · Brand tools for manufacturers ·
       Consumer safety features remain free and independent of paid status.
@@ -494,16 +498,25 @@
 
   
 
+  let authMode = "login";
+
   function setAuthMode(mode) {
-    const isSignup = mode === "signup";
+    authMode = mode === "signup" ? "signup" : "login";
+    const isSignup = authMode === "signup";
     const loginFields = $("loginFields");
     const signupFields = $("signupFields");
-    const actionsLogin = $("authActionsLogin");
-    const actionsSignup = $("authActionsSignup");
-    if (loginFields) loginFields.hidden = isSignup;
-    if (signupFields) signupFields.hidden = !isSignup;
-    if (actionsLogin) actionsLogin.hidden = isSignup;
-    if (actionsSignup) actionsSignup.hidden = !isSignup;
+    if (loginFields) {
+      loginFields.hidden = isSignup;
+      loginFields.style.display = isSignup ? "none" : "block";
+    }
+    if (signupFields) {
+      signupFields.hidden = !isSignup;
+      signupFields.style.display = isSignup ? "block" : "none";
+    }
+    const primary = $("btnPrimaryAuth");
+    const secondary = $("btnSecondaryAuth");
+    if (primary) primary.textContent = isSignup ? "Create account" : "Sign in";
+    if (secondary) secondary.textContent = isSignup ? "Back to sign in" : "Create account";
     if ($("authTitle")) {
       $("authTitle").textContent = isSignup
         ? "Create a TrueMark Business account"
@@ -520,8 +533,10 @@
   function showSessionUI(user) {
     const authCard = $("authCard");
     const sessionBanner = $("sessionBanner");
+    const logoutBtn = $("btnLogoutFooter");
     if (authCard) authCard.hidden = true;
     if (sessionBanner) sessionBanner.hidden = false;
+    if (logoutBtn) logoutBtn.hidden = false;
     if ($("sessionLabel")) {
       $("sessionLabel").textContent =
         (user && user.email)
@@ -533,8 +548,10 @@
   function showAuthUI() {
     const authCard = $("authCard");
     const sessionBanner = $("sessionBanner");
+    const logoutBtn = $("btnLogoutFooter");
     if (authCard) authCard.hidden = false;
     if (sessionBanner) sessionBanner.hidden = true;
+    if (logoutBtn) logoutBtn.hidden = true;
     setAuthMode("login");
   }
 
@@ -627,12 +644,14 @@
   }
 
 
-  $("btnLogin").onclick = () => login(false);
-  $("btnSignup").onclick = () => login(true);
-  $("btnShowSignup").onclick = () => setAuthMode("signup");
-  $("btnShowLogin").onclick = () => setAuthMode("login");
-  $("btnLogoutTop").onclick = logout;
-  if ($("btnLogoutBanner")) $("btnLogoutBanner").onclick = logout;
+  $("btnPrimaryAuth").onclick = () => {
+    if (authMode === "signup") login(true);
+    else login(false);
+  };
+  $("btnSecondaryAuth").onclick = () => {
+    setAuthMode(authMode === "signup" ? "login" : "signup");
+  };
+  if ($("btnLogoutFooter")) $("btnLogoutFooter").onclick = logout;
 
   $("btnRegister").onclick = async () => {
     try {
