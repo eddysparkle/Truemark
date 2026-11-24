@@ -21,16 +21,75 @@
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
   <script src="verification.js" defer></script>
   <script src="script.js" defer></script>
+  <script src="menu.js" defer></script>
   <script src="auth.js" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <a href="#" class="brand" aria-label="TrueMark home">
-      <span class="brand-icon">✓</span>
-      <span>True<span>Mark</span></span>
-    </a>
+    <div class="topbar-left">
+      <button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="sideDrawer">
+        <span class="menu-bar"></span>
+        <span class="menu-bar"></span>
+        <span class="menu-bar"></span>
+      </button>
+      <a href="#home" class="brand" aria-label="TrueMark home">
+        <span class="brand-icon">✓</span>
+        <span>True<span>Mark</span></span>
+      </a>
+    </div>
     <div class="profile-icon" id="profileIcon" aria-label="Sign in" title="Sign in">T</div>
   </header>
+
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="side-drawer" id="sideDrawer" aria-hidden="true" role="dialog" aria-label="TrueMark menu">
+    <div class="drawer-head">
+      <div class="drawer-brand">
+        <span class="brand-icon">✓</span>
+        <div>
+          <strong>TrueMark</strong>
+          <small>Scan before you buy</small>
+        </div>
+      </div>
+      <button type="button" class="drawer-close" id="drawerClose" aria-label="Close menu">×</button>
+    </div>
+
+    <div class="drawer-user" id="drawerUser">
+      <p class="drawer-user-label">Account</p>
+      <p class="drawer-user-email" id="drawerUserEmail">Not signed in</p>
+      <button type="button" class="drawer-btn" id="drawerSignIn">Sign in / Sign up</button>
+    </div>
+
+    <nav class="drawer-nav" aria-label="Sidebar">
+      <p class="drawer-section">Navigate</p>
+      <a class="drawer-link" data-drawer-nav="home" href="#home">⌂ Home</a>
+      <button type="button" class="drawer-link drawer-link-btn" id="drawerScan">▦ Scan a product</button>
+      <a class="drawer-link" data-drawer-nav="history" href="#history">◷ Scan history</a>
+      <a class="drawer-link" data-drawer-nav="alerts" href="#alerts">♧ Safety alerts</a>
+
+      <p class="drawer-section">About TrueMark</p>
+      <a class="drawer-link" href="#mission">◎ Our mission</a>
+      <a class="drawer-link" href="#how-it-works">✧ How it works</a>
+      <a class="drawer-link" href="#trust">✓ Trust &amp; safety</a>
+
+      <p class="drawer-section">Partners</p>
+      <a class="drawer-link" href="./business.html">🏢 For manufacturers</a>
+      <a class="drawer-link" href="mailto:successfulutomi@gmail.com?subject=TrueMark%20Partnership">✉ Partner with us</a>
+
+      <p class="drawer-section">Support</p>
+      <a class="drawer-link" href="mailto:successfulutomi@gmail.com?subject=TrueMark%20Beta%20Feedback">✉ Send feedback</a>
+      <a class="drawer-link" href="privacy-policy.html">Privacy policy</a>
+
+      <div id="drawerAdminSection" class="drawer-admin" hidden>
+        <p class="drawer-section">Staff</p>
+        <a class="drawer-link drawer-link-admin" href="./admin.html">⚙ Admin portal</a>
+        <p class="drawer-admin-note">Visible only for platform administrators. Approve manufacturers and manage plans here.</p>
+      </div>
+    </nav>
+
+    <div class="drawer-foot">
+      <p>TrueMark helps consumers make safer product decisions with transparent checks — not marketing claims.</p>
+    </div>
+  </aside>
 
   <div class="beta-banner" role="status">
     <strong>TrueMark Beta</strong> —
@@ -130,6 +189,33 @@
       <p class="buy-note">Help surface pack issues. Not a public accusation against brands.</p>
     </section>
   </main>
+
+
+    <section class="info-panel" id="mission">
+      <h2>Our mission</h2>
+      <p>TrueMark exists so people in Nigeria and beyond can check product information before they buy — using barcodes, labels, and official guidance links — without being misled by empty “100% genuine” claims.</p>
+      <p>We prioritise transparency: catalogue matches, manufacturer records, and regulatory links are shown with clear limits. A match is not physical authenticity.</p>
+    </section>
+
+    <section class="info-panel" id="how-it-works">
+      <h2>How it works</h2>
+      <ol class="how-list">
+        <li><strong>Scan or search</strong> — barcode, label photo, or product name.</li>
+        <li><strong>See what we found</strong> — public catalogues, your TrueMark index, and guidance links where available.</li>
+        <li><strong>Check the pack</strong> — compare name, brand, NAFDAC number, and seller trust yourself.</li>
+        <li><strong>Report issues</strong> — help the community grow safer coverage over time.</li>
+      </ol>
+    </section>
+
+    <section class="info-panel" id="trust">
+      <h2>Trust &amp; safety</h2>
+      <ul class="trust-list">
+        <li>Consumers keep essential checks free.</li>
+        <li>Manufacturers cannot pay for a favourable authenticity result.</li>
+        <li>Missing catalogue data does not mean a product is fake.</li>
+        <li>Admin tools are separate and restricted to platform staff.</li>
+      </ul>
+    </section>
 
   <div class="scanner-modal" id="scannerModal" aria-hidden="true">
     <div class="scanner-box" role="dialog" aria-modal="true" aria-labelledby="scannerTitle">
