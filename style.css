@@ -1824,7 +1824,22 @@ body {
   border: 1px solid var(--border);
   background: #fff;
   box-shadow: var(--shadow);
-  overflow: hidden;
+  overflow: visible;
+  min-width: 0;
+}
+.search-box input {
+  min-width: 0;
+  flex: 1 1 0;
+  width: 0; /* force flex shrink so button stays visible without clipping placeholder awkwardly */
+  font-size: 12px;
+}
+.search-box input::placeholder {
+  font-size: 11px;
+  opacity: 0.75;
+}
+.search-box button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .category-card {
@@ -2472,4 +2487,29 @@ body.drawer-open {
 .how-list li,
 .trust-list li {
   margin-bottom: 8px;
+}
+
+
+/* Fix: profile icon must not float over the open menu */
+body.drawer-open .profile-icon {
+  visibility: hidden;
+  pointer-events: none;
+}
+body.drawer-open .topbar {
+  z-index: 1990;
+}
+.side-drawer,
+.drawer-backdrop {
+  z-index: 2000;
+}
+.side-drawer {
+  z-index: 2001;
+}
+
+/* Keep primary scan CTA clear of bottom nav on first paint */
+.scan-card {
+  margin-bottom: 32px;
+}
+.container {
+  padding-bottom: 110px !important;
 }
