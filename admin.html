@@ -28,17 +28,18 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .top-nav a {
       display: inline-flex;
       align-items: center;
-      padding: 8px 12px;
+      min-height: 36px;
+      padding: 0 12px;
       border-radius: 999px;
       background: #fff;
       border: 1px solid #d5ebe0;
       color: #0b6e4f;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 700;
       text-decoration: none;
     }
@@ -164,6 +165,16 @@
       color: #5a6f66;
       font-size: 0.85rem;
     }
+    .notice {
+      background: #fff8e8;
+      border: 1px solid #f0d9a8;
+      color: #6a4a10;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      margin-bottom: 12px;
+    }
   </style>
 </head>
 <body>
@@ -176,25 +187,30 @@
     <h1>TrueMark Admin</h1>
     <p class="muted">Approve manufacturers, adjust plan prices, and view revenue. Only accounts listed in <code>ADMIN_USER_IDS</code> can use this page.</p>
 
+    <div class="notice">
+      Signing in on TrueMark Business does <strong>not</strong> open Admin automatically.
+      You must sign in again on this page to use admin tools.
+    </div>
+
     <div class="card" id="sessionCard" hidden>
       <h2>Admin session</h2>
       <p class="muted" id="whoActive">—</p>
       <p class="muted" id="adminGateMsg" style="margin-top:8px;"></p>
       <div class="btn-row">
-        <button type="button" class="chip-btn" id="btnLogout">Sign out</button>
+        <button type="button" class="chip-btn" id="btnLogout">Close admin session</button>
         <button type="button" class="chip-btn" id="btnStats2">Refresh</button>
       </div>
     </div>
 
     <div class="card" id="loginCard">
-      <h2>Sign in</h2>
-      <p class="muted">Use the account whose user id is in Cloudflare <code>ADMIN_USER_IDS</code>.</p>
+      <h2>Admin sign in</h2>
+      <p class="muted">Enter your admin email and password. This is separate from merely being logged into Business.</p>
       <label>Email <input id="email" type="email" autocomplete="username" /></label>
       <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
       <div class="btn-row">
-        <button type="button" class="scan-again-button" id="btnLogin">Sign in</button>
+        <button type="button" class="scan-again-button" id="btnLogin">Sign in to Admin</button>
       </div>
-      <p class="muted" id="who" style="margin-top:10px;">Not signed in</p>
+      <p class="muted" id="who" style="margin-top:10px;">Admin session not active</p>
     </div>
 
     <div class="card">
@@ -207,7 +223,7 @@
 
     <div class="card">
       <h2>Business applications</h2>
-      <div id="bizTable" class="muted">Load after sign-in</div>
+      <div id="bizTable" class="muted">Load after admin sign-in</div>
     </div>
 
     <div class="card">
@@ -234,12 +250,24 @@
   const API = "https://truemark-ai.edialeeghonghon.workers.dev";
   const TOKEN_KEY = "truemark_auth_token";
   const USER_KEY = "truemark_auth_user";
+  const ADMIN_GATE = "truemark_admin_gate";
+
   const $ = (id) => document.getElementById(id);
   const token = () => localStorage.getItem(TOKEN_KEY) || "";
   const headers = () => ({
     "Content-Type": "application/json",
     ...(token() ? { Authorization: "Bearer " + token() } : {})
   });
+
+  function adminUnlocked() {
+    try { return sessionStorage.getItem(ADMIN_GATE) === "1"; } catch (_) { return false; }
+  }
+  function unlockAdmin() {
+    try { sessionStorage.setItem(ADMIN_GATE, "1"); } catch (_) {}
+  }
+  function lockAdmin() {
+    try { sessionStorage.removeItem(ADMIN_GATE); } catch (_) {}
+  }
 
   function esc(s) {
     return String(s || "")
@@ -266,11 +294,11 @@
     const sessionCard = $("sessionCard");
     if (loginCard) loginCard.hidden = false;
     if (sessionCard) sessionCard.hidden = true;
-    if ($("who")) $("who").textContent = "Not signed in";
+    if ($("who")) $("who").textContent = "Admin session not active";
     if ($("whoActive")) $("whoActive").textContent = "—";
     if ($("adminGateMsg")) $("adminGateMsg").textContent = "";
     if ($("stats")) $("stats").textContent = "Sign in to load stats.";
-    if ($("bizTable")) $("bizTable").textContent = "Load after sign-in";
+    if ($("bizTable")) $("bizTable").textContent = "Load after admin sign-in";
   }
 
   async function api(path, options = {}) {
@@ -282,42 +310,10 @@
     if (!res.ok) {
       const err = new Error(data.error || data.message || String(res.status));
       err.status = res.status;
-      err.data = data;
       throw err;
     }
     return data;
   }
-
-  $("btnLogin").onclick = async () => {
-    try {
-      $("who").textContent = "Signing in…";
-      const data = await api("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          email: $("email").value.trim(),
-          password: $("password").value
-        })
-      });
-      if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
-      if (data.user) localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-      showLoggedIn(data.user);
-      await loadAll(data.user);
-    } catch (e) {
-      showLoggedOut();
-      $("who").textContent = e.message || "Sign in failed";
-    }
-  };
-
-  function bindLogout() {
-    const btn = $("btnLogout");
-    if (!btn) return;
-    btn.onclick = () => {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-      showLoggedOut();
-    };
-  }
-  bindLogout();
 
   async function loadStats() {
     const data = await api("/admin/stats");
@@ -337,30 +333,27 @@
       $("bizTable").innerHTML = '<div class="empty">No business applications yet.</div>';
       return;
     }
-
     $("bizTable").innerHTML =
       '<div class="biz-list">' +
-      rows
-        .map((b) => {
-          const st = (b.status || "pending").toLowerCase();
-          return (
-            '<div class="biz-item">' +
-            '<div class="name">' + esc(b.legal_name) + "</div>" +
-            '<div class="biz-meta">' +
-            esc(b.email) +
-            (b.phone ? " · " + esc(b.phone) : "") +
-            "<br/>Plan: " + esc(b.plan_code || "starter") +
-            (b.registration_number ? " · CAC: " + esc(b.registration_number) : "") +
-            "</div>" +
-            '<span class="status status-' + esc(st) + '">' + esc(st) + "</span>" +
-            '<div class="biz-actions">' +
-            '<button type="button" class="chip-btn" data-id="' + esc(b.id) + '" data-status="approved">Approve</button>' +
-            '<button type="button" class="chip-btn chip-btn-warn" data-id="' + esc(b.id) + '" data-status="rejected">Reject</button>' +
-            '<button type="button" class="chip-btn chip-btn-danger" data-id="' + esc(b.id) + '" data-status="suspended">Suspend</button>' +
-            "</div></div>"
-          );
-        })
-        .join("") +
+      rows.map((b) => {
+        const st = (b.status || "pending").toLowerCase();
+        return (
+          '<div class="biz-item">' +
+          '<div class="name">' + esc(b.legal_name) + "</div>" +
+          '<div class="biz-meta">' +
+          esc(b.email) +
+          (b.phone ? " · " + esc(b.phone) : "") +
+          "<br/>Plan: " + esc(b.plan_code || "starter") +
+          (b.registration_number ? " · CAC: " + esc(b.registration_number) : "") +
+          "</div>" +
+          '<span class="status status-' + esc(st) + '">' + esc(st) + "</span>" +
+          '<div class="biz-actions">' +
+          '<button type="button" class="chip-btn" data-id="' + esc(b.id) + '" data-status="approved">Approve</button>' +
+          '<button type="button" class="chip-btn chip-btn-warn" data-id="' + esc(b.id) + '" data-status="rejected">Reject</button>' +
+          '<button type="button" class="chip-btn chip-btn-danger" data-id="' + esc(b.id) + '" data-status="suspended">Suspend</button>' +
+          "</div></div>"
+        );
+      }).join("") +
       "</div>";
 
     $("bizTable").querySelectorAll("button[data-id]").forEach((btn) => {
@@ -387,8 +380,7 @@
       await loadStats();
       await loadBusinesses();
       if ($("adminGateMsg")) {
-        $("adminGateMsg").textContent =
-          "Admin access granted. You can approve manufacturers below.";
+        $("adminGateMsg").textContent = "Admin access granted. You can approve manufacturers below.";
         $("adminGateMsg").style.color = "#0b6e4f";
       }
     } catch (e) {
@@ -396,12 +388,11 @@
       $("stats").textContent = msg;
       $("bizTable").textContent = msg;
       if ($("adminGateMsg")) {
-        if (msg.toLowerCase().includes("admin") || e.status === 403) {
-          const id = user?.id || (JSON.parse(localStorage.getItem(USER_KEY) || "{}").id) || "(unknown)";
+        if (String(msg).toLowerCase().includes("admin") || e.status === 403) {
+          const id = user?.id || "(unknown)";
           $("adminGateMsg").textContent =
-            "Signed in, but this account is not an admin. " +
-            "Your user id is: " + id + ". " +
-            "It must match Cloudflare secret ADMIN_USER_IDS exactly (Production), then redeploy the Worker.";
+            "Signed in, but this account is not an admin. Your user id is: " + id +
+            ". It must match Cloudflare secret ADMIN_USER_IDS.";
           $("adminGateMsg").style.color = "#a11818";
         } else {
           $("adminGateMsg").textContent = msg;
@@ -411,9 +402,36 @@
     }
   }
 
+  $("btnLogin").onclick = async () => {
+    try {
+      $("who").textContent = "Signing in…";
+      const data = await api("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: $("email").value.trim(),
+          password: $("password").value
+        })
+      });
+      if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
+      if (data.user) localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      unlockAdmin();
+      showLoggedIn(data.user);
+      await loadAll(data.user);
+    } catch (e) {
+      lockAdmin();
+      showLoggedOut();
+      $("who").textContent = e.message || "Sign in failed";
+    }
+  };
+
+  $("btnLogout").onclick = () => {
+    lockAdmin();
+    showLoggedOut();
+    $("who").textContent = "Admin session closed. Sign in again to use admin tools.";
+  };
+
   $("btnStats").onclick = () => loadAll();
-  const btnStats2 = $("btnStats2");
-  if (btnStats2) btnStats2.onclick = () => loadAll();
+  $("btnStats2").onclick = () => loadAll();
 
   $("btnPlan").onclick = async () => {
     try {
@@ -428,15 +446,19 @@
     }
   };
 
-  if (token()) {
+  // Business/consumer login must NOT auto-enter admin.
+  if (token() && adminUnlocked()) {
     let user = null;
     try { user = JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch (_) {}
-    showLoggedIn(user || { email: "session restored" });
+    showLoggedIn(user || { email: "admin session" });
     loadAll(user);
   } else {
     showLoggedOut();
+    if (token()) {
+      $("who").textContent =
+        "You may be signed in on TrueMark Business, but Admin requires a separate Sign in on this page.";
+    }
   }
-</script>
-
+  </script>
 </body>
 </html>
