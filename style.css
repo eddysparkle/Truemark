@@ -2513,3 +2513,32 @@ body.drawer-open .topbar {
 .container {
   padding-bottom: 110px !important;
 }
+
+
+/* Portal shortcuts under beta banner */
+.portal-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  margin: 12px 16px 4px;
+}
+.portal-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+.portal-pill-admin {
+  background: #0b6e4f !important;
+  color: #fff !important;
+  border-color: #0b6e4f !important;
+}
+.portal-pill-admin:hover {
+  background: #08553c !important;
+  color: #fff !important;
+}
