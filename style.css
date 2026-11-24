@@ -2231,3 +2231,245 @@ body {
   line-height: 1.35;
   color: #2a3d4a;
 }
+
+
+/* ---- Hamburger + side drawer ---- */
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.menu-toggle {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border, #d7ebe2);
+  background: #fff;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.menu-bar {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--green, #0b6e4f);
+  border-radius: 2px;
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 30, 22, 0.45);
+  z-index: 2000;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.drawer-backdrop.open {
+  opacity: 1;
+}
+
+.side-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: min(320px, 88vw);
+  background: #fff;
+  z-index: 2001;
+  transform: translateX(-105%);
+  transition: transform 0.25s ease;
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.side-drawer.open {
+  transform: translateX(0);
+}
+
+body.drawer-open {
+  overflow: hidden;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 14px;
+  border-bottom: 1px solid #e5efe9;
+  gap: 10px;
+}
+
+.drawer-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drawer-brand strong {
+  display: block;
+  font-size: 1rem;
+  color: #12352a;
+}
+
+.drawer-brand small {
+  color: #5a6f66;
+  font-size: 0.75rem;
+}
+
+.drawer-close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: #f3f7f5;
+  border-radius: 10px;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #35584a;
+}
+
+.drawer-user {
+  padding: 14px;
+  background: #f7fbf9;
+  border-bottom: 1px solid #e5efe9;
+}
+
+.drawer-user-label {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5a6f66;
+}
+
+.drawer-user-email {
+  margin: 4px 0 10px;
+  font-weight: 700;
+  color: #12352a;
+  word-break: break-word;
+  font-size: 0.9rem;
+}
+
+.drawer-btn {
+  width: 100%;
+  border: none;
+  background: var(--green, #0b6e4f);
+  color: #fff;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 11px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.drawer-nav {
+  padding: 10px 10px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drawer-section {
+  margin: 14px 8px 6px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7a9088;
+}
+
+.drawer-link,
+.drawer-link-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px;
+  border-radius: 12px;
+  color: #1a3d30;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.92rem;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.drawer-link:hover,
+.drawer-link-btn:hover {
+  background: #eef7f2;
+}
+
+.drawer-link-admin {
+  background: #eef6f1;
+  color: #0b6e4f;
+  font-weight: 800;
+}
+
+.drawer-admin-note {
+  margin: 4px 10px 8px;
+  font-size: 0.72rem;
+  color: #5a6f66;
+  line-height: 1.4;
+}
+
+.drawer-foot {
+  margin-top: auto;
+  padding: 14px 16px 28px;
+  border-top: 1px solid #e5efe9;
+  font-size: 0.75rem;
+  color: #5a6f66;
+  line-height: 1.45;
+}
+
+.info-panel {
+  background: #fff;
+  border: 1px solid var(--border, #d7ebe2);
+  border-radius: 16px;
+  padding: 18px 16px;
+  margin: 18px 0;
+  box-shadow: 0 8px 22px rgba(11, 110, 79, 0.05);
+}
+
+.info-panel h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  color: #0b6e4f;
+}
+
+.info-panel p {
+  margin: 0 0 10px;
+  color: #35584a;
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+
+.how-list,
+.trust-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: #35584a;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.how-list li,
+.trust-list li {
+  margin-bottom: 8px;
+}
