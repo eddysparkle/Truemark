@@ -7,7 +7,7 @@
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '8.2.0';
+const VERSION = '8.3.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -204,6 +204,22 @@ async function storeProductImage(db, env, productId, imageUrlOrData) {
   `).bind(productId, contentType, dataBase64, now).run();
 
   return productImagePublicUrl(env, productId);
+}
+
+
+async function resolveProductImageUrl(db, env, productId, fallbackUrl) {
+  try {
+    await ensureProductImagesTable(db);
+    const row = await db.prepare(
+      'SELECT product_id FROM product_images WHERE product_id = ? LIMIT 1'
+    ).bind(productId).first();
+    if (row) return productImagePublicUrl(env, productId);
+  } catch (_) {}
+  const fb = String(fallbackUrl || '');
+  if (fb.startsWith('data:image') && fb.length < 8000) return '';
+  if (fb.startsWith('http://') || fb.startsWith('https://')) return fb;
+  if (fb.startsWith('data:image') && fb.length >= 8000) return fb;
+  return '';
 }
 
 async function serveProductImage(productId, env) {
@@ -1211,7 +1227,12 @@ async function searchProductsRoute(url, env) {
 
   const db = requireDatabase(env);
   const products = await searchProducts(db, query, limit);
-  return jsonResponse({ success: true, products });
+  const resolved = [];
+  for (const p of products) {
+    const image_url = await resolveProductImageUrl(db, env, p.id, p.image_url);
+    resolved.push({ ...p, image_url });
+  }
+  return jsonResponse({ success: true, products: resolved });
 }
 
 async function productDetailsRoute(productId, env) {
@@ -1232,9 +1253,10 @@ async function productDetailsRoute(productId, env) {
       .bind(product.id).all()
   ]);
 
+  const image_url = await resolveProductImageUrl(db, env, product.id, product.image_url);
   return jsonResponse({
     success: true,
-    product,
+    product: { ...product, image_url },
     identifiers: identifiers.results || [],
     sources,
     regulatory_records: (regulatory.results || []).map((row) => ({
@@ -2575,7 +2597,7 @@ async function myBusinessRoute(request, env) {
   const sub = await getActiveSubscription(db, business.id);
   const plan = await getPlan(db, business.plan_code || 'starter');
   const { results: products } = await db.prepare(
-    'SELECT * FROM business_products WHERE business_id = ? ORDER BY updated_at DESC LIMIT 100'
+    'SELECT * FROM business_products WHERE business_id = ? AND status != 'removed' ORDER BY updated_at DESC LIMIT 100'
   ).bind(business.id).all();
 
   return jsonResponse({
@@ -2629,9 +2651,15 @@ async function addBusinessProductRoute(request, env) {
     return jsonResponse({ success: false, error: 'Product name is required.' }, 400);
   }
 
-  const id = crypto.randomUUID();
   const now = isoNow();
-  // Store full image bytes separately; catalogue only keeps a public Worker URL
+  // Re-use existing product row with same name so image can be fixed without duplicates
+  const existing = await db.prepare(`
+    SELECT id FROM business_products
+    WHERE business_id = ? AND lower(name) = lower(?) AND status = 'active'
+    LIMIT 1
+  `).bind(business.id, name).first();
+  const id = existing?.id || crypto.randomUUID();
+
   let publicImageUrl = '';
   try {
     publicImageUrl = await storeProductImage(db, env, id, body.image_url);
@@ -2642,25 +2670,52 @@ async function addBusinessProductRoute(request, env) {
   if (body.image_url && !publicImageUrl) {
     console.warn('TrueMark image rejected or too large for product', id);
   }
-  await db.prepare(`
-    INSERT INTO business_products (
-      id, business_id, name, brand, barcode, gtin, category, description,
-      image_url, nafdac_number, status, record_type, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'manufacturer_registered', ?, ?)
-  `).bind(
-    id,
-    business.id,
-    name,
-    clean(body.brand, 160),
-    clean(body.barcode, 80),
-    clean(body.gtin, 80),
-    clean(body.category, 120),
-    clean(body.description, 2000),
-    publicImageUrl || '',
-    clean(body.nafdac_number, 80),
-    now,
-    now
-  ).run();
+
+  if (existing) {
+    await db.prepare(`
+      UPDATE business_products SET
+        brand = COALESCE(NULLIF(?, ''), brand),
+        barcode = COALESCE(NULLIF(?, ''), barcode),
+        gtin = COALESCE(NULLIF(?, ''), gtin),
+        category = COALESCE(NULLIF(?, ''), category),
+        description = COALESCE(NULLIF(?, ''), description),
+        image_url = CASE WHEN ? != '' THEN ? ELSE image_url END,
+        nafdac_number = COALESCE(NULLIF(?, ''), nafdac_number),
+        updated_at = ?
+      WHERE id = ?
+    `).bind(
+      clean(body.brand, 160),
+      clean(body.barcode, 80),
+      clean(body.gtin, 80),
+      clean(body.category, 120),
+      clean(body.description, 2000),
+      publicImageUrl || '',
+      publicImageUrl || '',
+      clean(body.nafdac_number, 80),
+      now,
+      id
+    ).run();
+  } else {
+    await db.prepare(`
+      INSERT INTO business_products (
+        id, business_id, name, brand, barcode, gtin, category, description,
+        image_url, nafdac_number, status, record_type, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'manufacturer_registered', ?, ?)
+    `).bind(
+      id,
+      business.id,
+      name,
+      clean(body.brand, 160),
+      clean(body.barcode, 80),
+      clean(body.gtin, 80),
+      clean(body.category, 120),
+      clean(body.description, 2000),
+      publicImageUrl || '',
+      clean(body.nafdac_number, 80),
+      now,
+      now
+    ).run();
+  }
 
   const product = await db.prepare('SELECT * FROM business_products WHERE id = ?').bind(id).first();
 
@@ -2710,6 +2765,129 @@ async function addBusinessProductRoute(request, env) {
       'Manufacturer-registered product data is provided by the business. It is not NAFDAC verification and does not authenticate a physical unit.'
   });
 }
+
+
+/** Soft-remove manufacturer product from business list and consumer catalogue. */
+async function removeBusinessProductRoute(request, env) {
+  const user = await requireUser(request, env);
+  const db = requireDatabase(env);
+  await ensureBusinessTables(db);
+  const business = await getBusinessForUser(db, user.id);
+  if (!business) {
+    return jsonResponse({ success: false, error: 'Register a business first.' }, 400);
+  }
+
+  const body = await readJson(request);
+  const productId = clean(body.product_id || body.id, 80);
+  if (!productId) {
+    return jsonResponse({ success: false, error: 'product_id is required.' }, 400);
+  }
+
+  const row = await db.prepare(
+    'SELECT * FROM business_products WHERE id = ? AND business_id = ? LIMIT 1'
+  ).bind(productId, business.id).first();
+
+  if (!row) {
+    return jsonResponse({
+      success: false,
+      error: 'Product not found on your business account.'
+    }, 404);
+  }
+
+  const now = isoNow();
+  await db.prepare(`
+    UPDATE business_products
+    SET status = 'removed', updated_at = ?
+    WHERE id = ? AND business_id = ?
+  `).bind(now, productId, business.id).run();
+
+  // Pull out of consumer search catalogue
+  try {
+    await db.prepare('DELETE FROM product_identifiers WHERE product_id = ?').bind(productId).run();
+  } catch (_) {}
+  try {
+    await db.prepare('DELETE FROM product_images WHERE product_id = ?').bind(productId).run();
+  } catch (_) {}
+  try {
+    await db.prepare('DELETE FROM products WHERE id = ?').bind(productId).run();
+  } catch (_) {}
+
+  return jsonResponse({
+    success: true,
+    removed: true,
+    product_id: productId,
+    message: 'Product removed from your catalogue and consumer search.'
+  });
+}
+
+/** Admin: remove any catalogue product (manufacturer or ingested). */
+async function adminRemoveProductRoute(request, env) {
+  await requireAdmin(request, env);
+  const db = requireDatabase(env);
+  const body = await readJson(request);
+  const productId = clean(body.product_id || body.id, 80);
+  const name = clean(body.name || body.product_name, 240);
+
+  if (!productId && !name) {
+    return jsonResponse({
+      success: false,
+      error: 'Provide product_id or name.'
+    }, 400);
+  }
+
+  let ids = [];
+  if (productId) {
+    ids = [productId];
+  } else {
+    const found = await db.prepare(`
+      SELECT id FROM products WHERE lower(name) = lower(?) LIMIT 20
+    `).bind(name).all();
+    ids = (found.results || []).map((r) => r.id);
+    try {
+      await ensureBusinessTables(db);
+      const biz = await db.prepare(`
+        SELECT id FROM business_products WHERE lower(name) = lower(?) LIMIT 20
+      `).bind(name).all();
+      for (const r of (biz.results || [])) {
+        if (!ids.includes(r.id)) ids.push(r.id);
+      }
+    } catch (_) {}
+  }
+
+  if (!ids.length) {
+    return jsonResponse({ success: false, error: 'No matching product found.' }, 404);
+  }
+
+  const now = isoNow();
+  let removed = 0;
+  for (const id of ids) {
+    try {
+      await ensureBusinessTables(db);
+      await db.prepare(`
+        UPDATE business_products SET status = 'removed', updated_at = ? WHERE id = ?
+      `).bind(now, id).run();
+    } catch (_) {}
+    try {
+      await db.prepare('DELETE FROM product_identifiers WHERE product_id = ?').bind(id).run();
+    } catch (_) {}
+    try {
+      await ensureProductImagesTable(db);
+      await db.prepare('DELETE FROM product_images WHERE product_id = ?').bind(id).run();
+    } catch (_) {}
+    try {
+      await db.prepare('DELETE FROM products WHERE id = ?').bind(id).run();
+      removed += 1;
+    } catch (_) {}
+  }
+
+  return jsonResponse({
+    success: true,
+    removed_ids: ids,
+    removed_count: removed,
+    message: 'Product(s) removed from consumer catalogue.'
+  });
+}
+
 
 async function initiatePaystackPaymentRoute(request, env) {
   const user = await requireUser(request, env);
@@ -3692,6 +3870,14 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
   if (path === '/business/products' && method === 'POST') {
     try { return await addBusinessProductRoute(request, env); }
     catch (e) {
+      if (String(errorMessage(e)).includes('AUTH')) return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      return jsonResponse({ success: false, error: errorMessage(e) }, 400);
+    }
+  }
+
+  if (path === '/business/products/remove' && method === 'POST') {
+    try { return await removeBusinessProductRoute(request, env); }
+    catch (e) {
       if (errorMessage(e) === 'AUTH_REQUIRED') return jsonResponse({ success: false, error: 'Sign in required' }, 401);
       throw e;
     }
@@ -3723,6 +3909,15 @@ if (path.startsWith('/products/barcode/') && method === 'GET') {
   if (path === '/webhooks/paystack' && method === 'POST') {
     return paystackWebhookRoute(request, env);
   }
+  if (path === '/admin/products/remove' && method === 'POST') {
+    try { return await adminRemoveProductRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
+      if (String(errorMessage(e)).includes('AUTH')) return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      return jsonResponse({ success: false, error: errorMessage(e) }, 400);
+    }
+  }
+
   if (path === '/admin/businesses' && method === 'GET') {
     try { return await adminListBusinessesRoute(request, env); }
     catch (e) {
