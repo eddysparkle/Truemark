@@ -923,9 +923,13 @@
       $("prodNafdac").value = "";
       $("prodCategory").value = "";
       if ($("prodImage")) $("prodImage").value = "";
-      if ($("prodImagePreview")) $("prodImagePreview").textContent = data.catalogue_indexed
-        ? "Saved and indexed for consumer search."
-        : "Saved.";
+      if ($("prodImagePreview")) {
+        let msg = data.catalogue_indexed ? "Saved and indexed for consumer search." : "Saved.";
+        if (data.image_stored) msg += " Image stored.";
+        else if ($("prodImage") && $("prodImage").files && $("prodImage").files[0])
+          msg += " Image was not stored (too large or invalid) — try a smaller pack photo.";
+        $("prodImagePreview").textContent = msg;
+      }
       await refreshBiz();
     } catch (e) {
       alert(e.message);
