@@ -1154,10 +1154,15 @@ function displayProduct(product, barcode, sources = [], options = {}) {
       "</p>";
   });
 
-  const imageHtml = image
+  const imageOk =
+    typeof image === "string" &&
+    image.length > 24 &&
+    (/^https?:\/\//i.test(image) ||
+      /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(image));
+  const imageHtml = imageOk
     ? '<img src="' +
       escapeHTML(image) +
-      '" alt="Product reference" style="width:140px;max-height:150px;object-fit:contain;margin:15px auto;display:block;">'
+      '" alt="Product reference" style="width:140px;max-height:150px;object-fit:contain;margin:15px auto;display:block;" onerror="this.style.display=\'none\'">'
     : "";
 
   scanResult.innerHTML =
