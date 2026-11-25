@@ -7,7 +7,7 @@
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '8.1.0';
+const VERSION = '8.1.1';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -132,6 +132,24 @@ function clean(value, maxLength = 240) {
     .trim()
     .slice(0, maxLength);
 }
+
+/** Product images: allow https URLs or compact data-URLs (manufacturer uploads). */
+function cleanImageUrl(value, maxDataChars = 450000) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^https:\/\//i.test(raw) || /^http:\/\//i.test(raw)) {
+    return raw.slice(0, 1000);
+  }
+  // data:image/...;base64,...
+  if (/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(raw)) {
+    if (raw.length > maxDataChars) {
+      return ''; // too large — do not store truncated broken image
+    }
+    return raw;
+  }
+  return '';
+}
+
 
 function normalize(value) {
   return clean(value, 300)
@@ -437,7 +455,7 @@ async function upsertProduct(db, product, identifiers = [], source = null) {
     clean(product.manufacturer, 200),
     clean(product.category, 120),
     clean(product.description, 1800),
-    clean(product.image_url, 1000),
+    cleanImageUrl(product.image_url),
     clean(product.country_of_origin, 120),
     clean(product.confidence || 'catalogue'),
     timestamp,
@@ -2548,7 +2566,7 @@ async function addBusinessProductRoute(request, env) {
     clean(body.gtin, 80),
     clean(body.category, 120),
     clean(body.description, 2000),
-    clean(body.image_url, 1000),
+    cleanImageUrl(body.image_url),
     clean(body.nafdac_number, 80),
     now,
     now
@@ -2575,7 +2593,7 @@ async function addBusinessProductRoute(request, env) {
         manufacturer: clean(business.legal_name || business.trading_name || '', 200),
         category: clean(body.category, 120),
         description: clean(body.description, 2000),
-        image_url: clean(body.image_url, 2000),
+        image_url: cleanImageUrl(body.image_url),
         country_of_origin: clean(body.country_of_origin || 'NG', 120),
         confidence: 'manufacturer_registered'
       },
