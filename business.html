@@ -402,10 +402,11 @@
           </label>
         </div>
         <div>
+          <p class="hint" id="selectedPlanLabel">Selected plan: professional — tap a plan card above</p>
           <label>Plan to purchase
             <select id="planSelect">
-              <option value="professional">Professional</option>
-              <option value="business">Business</option>
+              <option value="professional">Professional — max 50 products</option>
+              <option value="business">Business — max 200 products</option>
             </select>
           </label>
         </div>
@@ -425,6 +426,11 @@
         <label>Barcode / GTIN <input id="prodBarcode" /></label>
         <label>NAFDAC (if any) <input id="prodNafdac" /></label>
         <label>Category <input id="prodCategory" placeholder="e.g. Cosmetics" /></label>
+        <label>Product image
+          <input id="prodImage" type="file" accept="image/*" />
+        </label>
+        <p class="hint">Optional. Use a clear pack photo under ~400KB.</p>
+        <div id="prodImagePreview" class="msg"></div>
         <div class="btn-row">
           <button type="button" class="btn btn-primary" id="btnAddProduct">Save product</button>
         </div>
@@ -454,6 +460,7 @@
   </div>
 
   <script>
+  /* TrueMark Business UI v1.2.1 — includes refreshBiz */
   const API = "https://truemark-ai.edialeeghonghon.workers.dev";
   const TOKEN_KEY = "truemark_auth_token";
   const USER_KEY = "truemark_auth_user";
@@ -670,23 +677,56 @@
                   : monthly === 0
                   ? "Free"
                   : "₦" + monthly.toLocaleString();
+              const selectable = plan.code !== "starter" && plan.code !== "enterprise";
               return (
-                '<div class="plan' + (featured ? " featured" : "") + '">' +
+                '<button type="button" class="plan plan-btn' + (featured ? " featured" : "") + '"' +
+                ' data-plan="' + esc(plan.code) + '"' +
+                (selectable ? "" : " disabled") +
+                ">" +
                 "<strong>" + esc(plan.name) + "</strong>" +
                 '<div class="price">' + price +
                 (monthly ? '<span style="font-size:0.8rem;font-weight:600"> / mo</span>' : "") +
                 "</div>" +
                 '<p class="muted">' + esc(plan.description || "") + "</p>" +
-                '<p class="muted">Max products: ' + esc(plan.max_products) + "</p>" +
-                "</div>"
+                '<p class="muted">Max products: <strong>' + esc(plan.max_products) + "</strong></p>" +
+                (selectable
+                  ? '<span class="plan-cta">Tap to select</span>'
+                  : '<span class="plan-cta muted">' + (plan.code === "starter" ? "Included free" : "Contact TrueMark") + "</span>") +
+                "</button>"
               );
             }).join("")
           : '<p class="msg">No plans available.</p>';
+
+        $("planGrid").querySelectorAll(".plan-btn[data-plan]").forEach((btn) => {
+          if (btn.disabled) return;
+          btn.onclick = () => {
+            const code = btn.getAttribute("data-plan");
+            const sel = $("planSelect");
+            if (sel) {
+              // ensure option exists
+              let opt = [...sel.options].find((o) => o.value === code);
+              if (!opt) {
+                opt = document.createElement("option");
+                opt.value = code;
+                opt.textContent = code;
+                sel.appendChild(opt);
+              }
+              sel.value = code;
+            }
+            $("planGrid").querySelectorAll(".plan-btn").forEach((b) => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            const label = $("selectedPlanLabel");
+            if (label) label.textContent = "Selected plan: " + code;
+          };
+        });
       }
     } catch (e) {
       if ($("planGrid")) $("planGrid").textContent = e.message;
     }
   }
+
+  window.refreshBiz = refreshBiz;
+  window.loadPlans = loadPlans;
 
   async function login(isSignup) {
     setError("");
@@ -760,12 +800,13 @@
   if ($("btnLogoutFooter")) $("btnLogoutFooter").onclick = logout;
 
   $("btnRegister").onclick = async () => {
+    const statusEl = $("bizStatus");
     try {
       if (!$("legalName").value.trim()) {
-        $("bizStatus").textContent = "Legal name is required.";
+        if (statusEl) statusEl.textContent = "Legal name is required.";
         return;
       }
-      $("bizStatus").textContent = "Submitting application…";
+      if (statusEl) statusEl.textContent = "Submitting application…";
       const data = await api("/business/register", {
         method: "POST",
         body: JSON.stringify({
@@ -777,27 +818,79 @@
           website: $("website").value
         })
       });
-      $("bizStatus").textContent =
-        data.message || "Application submitted. Status is pending until TrueMark admin approval.";
-      await refreshBiz();
+      const okMsg =
+        data.message ||
+        "Application submitted. Status is pending until TrueMark admin approval.";
+      if (statusEl) statusEl.textContent = okMsg;
+      // Refresh dashboard without wiping the success message on refresh failure
+      try {
+        const refresher = window.refreshBiz || refreshBiz;
+        if (typeof refresher === "function") {
+          await refresher();
+          if (statusEl) statusEl.textContent = okMsg;
+        }
+      } catch (refreshErr) {
+        console.warn("Dashboard refresh failed:", refreshErr);
+        if (statusEl) {
+          statusEl.textContent =
+            okMsg + " (Reload the page to see updated status.)";
+        }
+      }
     } catch (e) {
-      $("bizStatus").textContent = e.message || "Could not submit application.";
+      if (statusEl) {
+        statusEl.textContent = e.message || "Could not submit application.";
+      }
     }
   };
 
+  async function readProductImageDataUrl() {
+    const input = $("prodImage");
+    if (!input || !input.files || !input.files[0]) return "";
+    const file = input.files[0];
+    if (file.size > 450000) {
+      throw new Error("Image is too large. Use a photo under about 400KB.");
+    }
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Could not read image."));
+      reader.readAsDataURL(file);
+    });
+  }
+
   $("btnAddProduct").onclick = async () => {
     try {
-      await api("/business/products", {
+      if (!$("prodName").value.trim()) {
+        alert("Product name is required.");
+        return;
+      }
+      let image_url = "";
+      try {
+        image_url = await readProductImageDataUrl();
+      } catch (imgErr) {
+        alert(imgErr.message);
+        return;
+      }
+      const data = await api("/business/products", {
         method: "POST",
         body: JSON.stringify({
           name: $("prodName").value,
           brand: $("prodBrand").value,
           barcode: $("prodBarcode").value,
           nafdac_number: $("prodNafdac").value,
-          category: $("prodCategory").value
+          category: $("prodCategory").value,
+          image_url: image_url
         })
       });
       $("prodName").value = "";
+      $("prodBrand").value = "";
+      $("prodBarcode").value = "";
+      $("prodNafdac").value = "";
+      $("prodCategory").value = "";
+      if ($("prodImage")) $("prodImage").value = "";
+      if ($("prodImagePreview")) $("prodImagePreview").textContent = data.catalogue_indexed
+        ? "Saved and indexed for consumer search."
+        : "Saved.";
       await refreshBiz();
     } catch (e) {
       alert(e.message);
