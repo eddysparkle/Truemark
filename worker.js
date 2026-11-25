@@ -7,7 +7,7 @@
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '8.1.1';
+const VERSION = '8.2.0';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -150,6 +150,85 @@ function cleanImageUrl(value, maxDataChars = 450000) {
   return '';
 }
 
+
+
+async function ensureProductImagesTable(db) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS product_images (
+      product_id TEXT PRIMARY KEY,
+      content_type TEXT NOT NULL DEFAULT 'image/jpeg',
+      data_base64 TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+}
+
+function workerPublicBase(env) {
+  return clean(env.PUBLIC_API_BASE || 'https://truemark-ai.edialeeghonghon.workers.dev', 200).replace(/\/$/, '');
+}
+
+function productImagePublicUrl(env, productId) {
+  return workerPublicBase(env) + '/products/' + encodeURIComponent(productId) + '/image';
+}
+
+/** Store full image; return public https URL for catalogue (never truncate data URLs into products.image_url). */
+async function storeProductImage(db, env, productId, imageUrlOrData) {
+  await ensureProductImagesTable(db);
+  const raw = String(imageUrlOrData || '').trim();
+  if (!raw) return '';
+
+  if (/^https:\/\//i.test(raw) || /^http:\/\//i.test(raw)) {
+    return raw.slice(0, 1000);
+  }
+
+  const m = raw.match(/^data:(image\/(jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!m) return '';
+
+  let contentType = m[1].toLowerCase();
+  if (contentType === 'image/jpg' || contentType === 'image/jpeg') contentType = 'image/jpeg';
+  const dataBase64 = m[3].replace(/\s+/g, '');
+  if (dataBase64.length < 32) return '';
+  if (dataBase64.length > 600000) {
+    // ~450KB binary
+    return '';
+  }
+
+  const now = isoNow();
+  await db.prepare(`
+    INSERT INTO product_images (product_id, content_type, data_base64, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(product_id) DO UPDATE SET
+      content_type = excluded.content_type,
+      data_base64 = excluded.data_base64,
+      updated_at = excluded.updated_at
+  `).bind(productId, contentType, dataBase64, now).run();
+
+  return productImagePublicUrl(env, productId);
+}
+
+async function serveProductImage(productId, env) {
+  const db = requireDatabase(env);
+  await ensureProductImagesTable(db);
+  const row = await db.prepare(
+    'SELECT content_type, data_base64 FROM product_images WHERE product_id = ? LIMIT 1'
+  ).bind(productId).first();
+  if (!row || !row.data_base64) {
+    return jsonResponse({ success: false, error: 'Image not found.' }, 404);
+  }
+  try {
+    const binary = Uint8Array.from(atob(row.data_base64), (c) => c.charCodeAt(0));
+    return new Response(binary, {
+      status: 200,
+      headers: {
+        'Content-Type': row.content_type || 'image/jpeg',
+        'Cache-Control': 'public, max-age=86400',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  } catch (e) {
+    return jsonResponse({ success: false, error: 'Invalid stored image.' }, 500);
+  }
+}
 
 function normalize(value) {
   return clean(value, 300)
@@ -2544,7 +2623,7 @@ async function addBusinessProductRoute(request, env) {
     }, 403);
   }
 
-  const body = await readJson(request);
+  const body = await readJson(request, MAX_IMAGE_CHARS + 50000);
   const name = clean(body.name || body.product_name, 240);
   if (!name) {
     return jsonResponse({ success: false, error: 'Product name is required.' }, 400);
@@ -2552,6 +2631,17 @@ async function addBusinessProductRoute(request, env) {
 
   const id = crypto.randomUUID();
   const now = isoNow();
+  // Store full image bytes separately; catalogue only keeps a public Worker URL
+  let publicImageUrl = '';
+  try {
+    publicImageUrl = await storeProductImage(db, env, id, body.image_url);
+  } catch (imgErr) {
+    console.warn('TrueMark image store failed:', imgErr && imgErr.message);
+    publicImageUrl = '';
+  }
+  if (body.image_url && !publicImageUrl) {
+    console.warn('TrueMark image rejected or too large for product', id);
+  }
   await db.prepare(`
     INSERT INTO business_products (
       id, business_id, name, brand, barcode, gtin, category, description,
@@ -2566,7 +2656,7 @@ async function addBusinessProductRoute(request, env) {
     clean(body.gtin, 80),
     clean(body.category, 120),
     clean(body.description, 2000),
-    cleanImageUrl(body.image_url),
+    publicImageUrl || '',
     clean(body.nafdac_number, 80),
     now,
     now
@@ -2593,7 +2683,7 @@ async function addBusinessProductRoute(request, env) {
         manufacturer: clean(business.legal_name || business.trading_name || '', 200),
         category: clean(body.category, 120),
         description: clean(body.description, 2000),
-        image_url: cleanImageUrl(body.image_url),
+        image_url: publicImageUrl || '',
         country_of_origin: clean(body.country_of_origin || 'NG', 120),
         confidence: 'manufacturer_registered'
       },
@@ -2611,7 +2701,9 @@ async function addBusinessProductRoute(request, env) {
 
   return jsonResponse({
     success: true,
-    product,
+    product: product ? { ...product, image_url: publicImageUrl || product.image_url || '' } : product,
+    image_url: publicImageUrl || '',
+    image_stored: Boolean(publicImageUrl),
     catalogue_indexed: true,
     record_type: 'manufacturer_registered',
     disclaimer:
@@ -3501,6 +3593,12 @@ async function handleRequest(request, env) {
 
   if (path === '/recalls' && method === 'GET') {
     return recallsRoute(url, env);
+  }
+
+  // Manufacturer / catalogue product image (binary)
+  const imageMatch = path.match(/^\/products\/([^/]+)\/image$/);
+  if (imageMatch && method === 'GET') {
+    return serveProductImage(decodeURIComponent(imageMatch[1]), env);
   }
 
   if (path === '/products/search' && method === 'GET') {
