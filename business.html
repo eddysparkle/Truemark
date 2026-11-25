@@ -429,7 +429,7 @@
         <label>Product image
           <input id="prodImage" type="file" accept="image/*" />
         </label>
-        <p class="hint">Optional. Use a clear pack photo under ~400KB.</p>
+        <p class="hint">Optional. Clear pack photo — TrueMark compresses it automatically before save.</p>
         <div id="prodImagePreview" class="msg"></div>
         <div class="btn-row">
           <button type="button" class="btn btn-primary" id="btnAddProduct">Save product</button>
@@ -847,13 +847,48 @@
     const input = $("prodImage");
     if (!input || !input.files || !input.files[0]) return "";
     const file = input.files[0];
-    if (file.size > 450000) {
-      throw new Error("Image is too large. Use a photo under about 400KB.");
-    }
+    // Compress on device so the data URL fits D1 and loads in search results
     return await new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
       reader.onerror = () => reject(new Error("Could not read image."));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Invalid image file."));
+        img.onload = () => {
+          try {
+            const maxSide = 720;
+            let w = img.naturalWidth || img.width;
+            let h = img.naturalHeight || img.height;
+            if (!w || !h) {
+              reject(new Error("Invalid image dimensions."));
+              return;
+            }
+            const scale = Math.min(1, maxSide / Math.max(w, h));
+            w = Math.max(1, Math.round(w * scale));
+            h = Math.max(1, Math.round(h * scale));
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+            let quality = 0.72;
+            let dataUrl = canvas.toDataURL("image/jpeg", quality);
+            // Keep under ~350KB characters so Worker accepts full image (not truncated)
+            while (dataUrl.length > 350000 && quality > 0.4) {
+              quality -= 0.08;
+              dataUrl = canvas.toDataURL("image/jpeg", quality);
+            }
+            if (dataUrl.length > 420000) {
+              reject(new Error("Image is still too large after compression. Use a simpler pack photo."));
+              return;
+            }
+            resolve(dataUrl);
+          } catch (e) {
+            reject(e);
+          }
+        };
+        img.src = String(reader.result || "");
+      };
       reader.readAsDataURL(file);
     });
   }
