@@ -41,7 +41,7 @@
 
   async function refreshDrawerAccount() {
     const emailEl = $("drawerUserEmail");
-    const adminSection = $("drawerAdminSection");
+    const adminSection = null; // admin is only on home portal row
     const token = localStorage.getItem(TOKEN_KEY);
     let user = null;
     try {
