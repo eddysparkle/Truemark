@@ -1116,6 +1116,8 @@ function fdaRecallsHtml(recalls, query) {
 
 
 function displayProduct(product, barcode, sources = [], options = {}) {
+  const isManufacturer = !!(options && options.manufacturerRegistered);
+
   if (!scanResult) return;
   const fromSearch = !!(options && options.fromSearch);
 
@@ -1168,7 +1170,11 @@ function displayProduct(product, barcode, sources = [], options = {}) {
     "</div>" +
     '<div class="auth-card">' +
       '<p class="auth-card-title">Authenticity not confirmed</p>' +
-      '<p class="auth-card-lead">This database record helps identify a product type. It does not authenticate the physical item in your hand.</p>' +
+      '<p class="auth-card-lead">' +
+      (isManufacturer
+        ? 'This record was registered by a TrueMark Business manufacturer. Catalogue information only — not NAFDAC verification and not proof the physical item is genuine.'
+        : 'This database record helps identify a product type. It does not authenticate the physical item in your hand.') +
+      '</p>' +
       '<p class="auth-next-label">Next checks</p>' +
       '<ul class="auth-steps compact-steps">' +
         "<li>Match name, brand and strength on the pack</li>" +
@@ -2382,34 +2388,42 @@ function showNameSearchResults(query, products) {
       const item = products[index];
       if (!item) return;
 
-      if (item.barcode && looksLikeBarcode(item.barcode)) {
-        lookupProduct(item.barcode);
-        return;
-      }
-
-      if (item.nafdac_number && String(item.nafdac_number).trim()) {
-        runNafdacCheckAndShow(item.nafdac_number);
-        return;
+      // Always show the catalogue / manufacturer record we already found.
+      // Do NOT re-run barcode lookup first — a bad/unknown GTIN would wipe a valid name match.
+      const sources = [{
+        name: item.source || item.source_label || "Catalogue",
+        record_type: item.record_type || item.confidence || ""
+      }];
+      if (item.confidence === "manufacturer_registered" || item.record_type === "manufacturer_registered") {
+        sources[0].name = "Manufacturer registered";
       }
 
       displayProduct(
         {
-          product_name: item.product_name,
-          brands: item.brand,
-          categories: item.category,
-          quantity: item.strength_or_size || "",
-          countries: "",
-          manufacturing_places: "",
-          image_url: item.image_url
+          product_name: item.product_name || item.name || "",
+          brands: item.brand || item.brands || "",
+          categories: item.category || item.categories || "",
+          quantity: item.strength_or_size || item.quantity || "",
+          countries: item.country_of_origin || "",
+          manufacturing_places: item.manufacturer || "",
+          image_url: item.image_url || "",
+          nafdac_number: item.nafdac_number || "",
+          confidence: item.confidence || "",
+          record_type: item.record_type || ""
         },
         item.barcode || query,
-        [{ name: item.source || "Catalogue" }],
-        { fromSearch: true }
+        sources,
+        {
+          fromSearch: true,
+          manufacturerRegistered:
+            item.confidence === "manufacturer_registered" ||
+            item.record_type === "manufacturer_registered"
+        }
       );
       saveScan(
         item.barcode || query,
-        item.product_name || "Name search match",
-        "Name search"
+        item.product_name || item.name || "Name search match",
+        sources[0].name
       );
     });
   });
