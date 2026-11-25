@@ -227,6 +227,21 @@
     </div>
 
     <div class="card">
+      <h2>Remove catalogue product</h2>
+      <p class="hint">Admin only. Removes a product from consumer search (and manufacturer listing if business-registered).</p>
+      <label>Product name
+        <input id="removeProductName" placeholder="e.g. Cabank" />
+      </label>
+      <label>Or product ID
+        <input id="removeProductId" placeholder="UUID optional" />
+      </label>
+      <div class="btn-row">
+        <button type="button" class="chip-btn chip-btn-danger" id="btnRemoveProduct">Remove from catalogue</button>
+      </div>
+      <p class="msg" id="removeProductMsg"></p>
+    </div>
+
+    <div class="card">
       <h2>Update plan pricing</h2>
       <label>Plan code
         <select id="planCode">
@@ -432,6 +447,34 @@
 
   $("btnStats").onclick = () => loadAll();
   $("btnStats2").onclick = () => loadAll();
+
+  if ($("btnRemoveProduct")) {
+    $("btnRemoveProduct").onclick = async () => {
+      const msg = $("removeProductMsg");
+      try {
+        if (msg) msg.textContent = "Removing…";
+        const body = {};
+        const id = ($("removeProductId") && $("removeProductId").value || "").trim();
+        const name = ($("removeProductName") && $("removeProductName").value || "").trim();
+        if (id) body.product_id = id;
+        if (name) body.name = name;
+        if (!id && !name) {
+          if (msg) msg.textContent = "Enter a product name or ID.";
+          return;
+        }
+        if (!confirm("Remove this product from the TrueMark catalogue?")) return;
+        const data = await api("/admin/products/remove", {
+          method: "POST",
+          body: JSON.stringify(body)
+        });
+        if (msg) msg.textContent = data.message || ("Removed " + (data.removed_count || 0) + " record(s).");
+        if ($("removeProductName")) $("removeProductName").value = "";
+        if ($("removeProductId")) $("removeProductId").value = "";
+      } catch (e) {
+        if (msg) msg.textContent = e.message || "Remove failed";
+      }
+    };
+  }
 
   $("btnPlan").onclick = async () => {
     try {
