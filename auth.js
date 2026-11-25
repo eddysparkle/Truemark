@@ -246,45 +246,6 @@
 })();
 
 
-/* Admin portal link — only if Worker says is_admin */
-(function trueMarkAdminEntry() {
-  const API = "https://truemark-ai.edialeeghonghon.workers.dev";
-  const TOKEN_KEY = "truemark_auth_token";
-
-  function ensureLink() {
-    let a = document.getElementById("truemarkAdminEntry");
-    if (a) return a;
-    a = document.createElement("a");
-    a.id = "truemarkAdminEntry";
-    a.href = "./admin.html";
-    a.textContent = "Admin portal";
-    a.className = "feedback-link feedback-pill";
-    a.style.display = "none";
-    a.title = "Visible only for platform administrators";
-    const row = document.querySelector(".feedback-row");
-    if (row) row.appendChild(a);
-    else document.body.appendChild(a);
-    return a;
-  }
-
-  async function refreshAdminEntry() {
-    const a = ensureLink();
-    a.style.display = "none";
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return;
-    try {
-      const res = await fetch(API + "/admin/session", {
-        headers: { Authorization: "Bearer " + token }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.is_admin) {
-        a.style.display = "inline-flex";
-      }
-    } catch (_) {}
-  }
-
-  document.addEventListener("DOMContentLoaded", refreshAdminEntry);
-  window.trueMarkRefreshAdminEntry = refreshAdminEntry;
   window.trueMarkRefreshDrawer = window.trueMarkRefreshDrawer;
 })();
 
@@ -297,9 +258,6 @@
     if (k === "truemark_auth_token" || k === "truemark_auth_user") {
       if (typeof window.trueMarkRefreshDrawer === "function") {
         setTimeout(window.trueMarkRefreshDrawer, 50);
-      }
-      if (typeof window.trueMarkRefreshAdminEntry === "function") {
-        setTimeout(window.trueMarkRefreshAdminEntry, 50);
       }
     }
   };
