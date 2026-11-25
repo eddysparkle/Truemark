@@ -420,7 +420,7 @@
     <div class="grid grid-2" style="margin-top:14px;">
       <div class="card">
         <h2>Product catalogue</h2>
-        <p class="hint">Manufacturer-registered entries are labelled as such — not regulator-verified.</p>
+        <p class="hint">Manufacturer-registered entries are labelled as such — not regulator-verified. To fix a missing photo, save the <strong>same product name</strong> again with a new image.</p>
         <label>Name * <input id="prodName" /></label>
         <label>Brand <input id="prodBrand" /></label>
         <label>Barcode / GTIN <input id="prodBarcode" /></label>
@@ -648,9 +648,32 @@
               [prod.brand, prod.barcode, prod.nafdac_number].filter(Boolean).map(esc).join(" · ") +
               '</div><span class="badge">' +
               esc(prod.record_type || "manufacturer_registered") +
-              "</span></div>"
+              '</span> <button type="button" class="btn btn-secondary btn-remove-product" data-id="' +
+              esc(prod.id) + '" data-name="' + esc(prod.name) +
+              '" style="margin-top:8px;font-size:0.8rem;">Remove from catalogue</button></div>'
             ).join("")
           : '<p class="msg">No products yet. Add your first product above.</p>';
+        $("productList").querySelectorAll(".btn-remove-product").forEach((btn) => {
+          btn.onclick = async () => {
+            const id = btn.getAttribute("data-id");
+            const name = btn.getAttribute("data-name") || "this product";
+            if (!id) return;
+            if (!confirm("Remove \"" + name + "\" from TrueMark catalogue and search? This cannot be undone from search until you add it again.")) return;
+            try {
+              btn.disabled = true;
+              btn.textContent = "Removing…";
+              await api("/business/products/remove", {
+                method: "POST",
+                body: JSON.stringify({ product_id: id })
+              });
+              await refreshBiz();
+            } catch (e) {
+              alert(e.message || "Could not remove product");
+              btn.disabled = false;
+              btn.textContent = "Remove from catalogue";
+            }
+          };
+        });
       }
 
       return data;
