@@ -7,7 +7,7 @@
  * NAFDAC and SON are shown as unconnected unless an authorised API is configured.
  */
 
-const VERSION = '8.3.0';
+const VERSION = '8.3.1';
 const DEFAULT_ORIGIN = 'https://eddysparkle.github.io';
 const AI_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 const MAX_JSON_BYTES = 1_000_000;
@@ -3721,8 +3721,31 @@ async function handleRequest(request, env) {
       version: VERSION,
       database,
       ai: env.AI ? 'configured' : 'not_configured',
+      features: ['product_remove', 'business_portal', 'manufacturer_images'],
+      routes_hint: {
+        business_remove: 'POST /business/products/remove',
+        admin_remove: 'POST /admin/products/remove'
+      },
       timestamp: isoNow()
     });
+  }
+
+
+  // Early product-remove routes (must work even if later B2B block fails to reach)
+  if (path === '/business/products/remove' && method === 'POST') {
+    try { return await removeBusinessProductRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('AUTH')) return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      return jsonResponse({ success: false, error: errorMessage(e) }, 400);
+    }
+  }
+  if (path === '/admin/products/remove' && method === 'POST') {
+    try { return await adminRemoveProductRoute(request, env); }
+    catch (e) {
+      if (String(errorMessage(e)).includes('ADMIN')) return jsonResponse({ success: false, error: 'Admin only' }, 403);
+      if (String(errorMessage(e)).includes('AUTH')) return jsonResponse({ success: false, error: 'Sign in required' }, 401);
+      return jsonResponse({ success: false, error: errorMessage(e) }, 400);
+    }
   }
 
   if (path === '/categories' && method === 'GET') {
