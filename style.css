@@ -2542,3 +2542,171 @@ body.drawer-open .topbar {
   background: #08553c !important;
   color: #fff !important;
 }
+
+
+/* =========================================================
+   Topbar — professional 3-slot alignment
+   [ Menu ]     [ TrueMark ]     [ Profile ]
+   ========================================================= */
+.topbar {
+  display: grid !important;
+  grid-template-columns: 48px minmax(0, 1fr) 48px !important;
+  align-items: center !important;
+  justify-content: stretch !important;
+  column-gap: 8px;
+  height: 58px !important;
+  min-height: 58px;
+  padding: 0 14px !important;
+  box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(215, 235, 226, 0.95);
+}
+
+.topbar-slot {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.topbar-slot-start {
+  justify-content: flex-start;
+}
+
+.topbar-slot-end {
+  justify-content: flex-end;
+}
+
+/* Brand sits dead-centre between equal side slots */
+.topbar .brand {
+  justify-self: center;
+  align-self: center;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  text-decoration: none;
+  color: var(--text, #14241c);
+  font-size: 1.15rem !important;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.topbar .brand-text {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.topbar .brand-text span {
+  color: var(--green, #0b6e4f);
+}
+
+.topbar .brand-icon {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 10px !important;
+  font-size: 1rem !important;
+  background: linear-gradient(145deg, #0b8a5c, #066844) !important;
+  color: #fff !important;
+  display: grid !important;
+  place-items: center !important;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(6, 104, 68, 0.25);
+}
+
+.topbar .menu-toggle {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 12px !important;
+  border: 1px solid #d7ebe2 !important;
+  background: #fff !important;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(11, 110, 79, 0.04);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.topbar .menu-toggle:hover,
+.topbar .menu-toggle:focus-visible {
+  background: #f3faf6 !important;
+  border-color: #0b6e4f !important;
+  outline: none;
+}
+
+.topbar .menu-toggle:active {
+  transform: scale(0.96);
+}
+
+.topbar .menu-bar {
+  width: 16px;
+  height: 2px;
+  background: #0b6e4f;
+  border-radius: 2px;
+}
+
+.topbar .profile-icon,
+button.profile-icon {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+  border: 1px solid #cfe8dc !important;
+  background: #eef8f2 !important;
+  color: #0b6e4f !important;
+  display: grid !important;
+  place-items: center !important;
+  font-size: 0.85rem !important;
+  font-weight: 800 !important;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  box-shadow: 0 1px 2px rgba(11, 110, 79, 0.05);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.topbar .profile-icon:hover,
+.topbar .profile-icon:focus-visible,
+button.profile-icon:hover,
+button.profile-icon:focus-visible {
+  background: #0b6e4f !important;
+  color: #fff !important;
+  border-color: #0b6e4f !important;
+  outline: none;
+}
+
+.topbar .profile-icon:active,
+button.profile-icon:active {
+  transform: scale(0.96);
+}
+
+/* Hide legacy left cluster if present */
+.topbar-left {
+  display: contents;
+}
+
+@media (max-width: 360px) {
+  .topbar {
+    padding: 0 10px !important;
+    grid-template-columns: 44px minmax(0, 1fr) 44px !important;
+  }
+  .topbar .brand {
+    font-size: 1.05rem !important;
+  }
+  .topbar .brand-icon {
+    width: 28px !important;
+    height: 28px !important;
+  }
+}
