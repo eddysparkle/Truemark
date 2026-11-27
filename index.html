@@ -25,19 +25,21 @@
   <script src="auth.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-left">
+  <header class="topbar" role="banner">
+    <div class="topbar-slot topbar-slot-start">
       <button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="sideDrawer">
         <span class="menu-bar"></span>
         <span class="menu-bar"></span>
         <span class="menu-bar"></span>
       </button>
-      <a href="#home" class="brand" aria-label="TrueMark home">
-        <span class="brand-icon">✓</span>
-        <span>True<span>Mark</span></span>
-      </a>
     </div>
-    <div class="profile-icon" id="profileIcon" aria-label="Sign in" title="Sign in">T</div>
+    <a href="#home" class="brand" aria-label="TrueMark home">
+      <span class="brand-icon" aria-hidden="true">✓</span>
+      <span class="brand-text">True<span>Mark</span></span>
+    </a>
+    <div class="topbar-slot topbar-slot-end">
+      <button type="button" class="profile-icon" id="profileIcon" aria-label="Account" title="Account">T</button>
+    </div>
   </header>
 
   <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
